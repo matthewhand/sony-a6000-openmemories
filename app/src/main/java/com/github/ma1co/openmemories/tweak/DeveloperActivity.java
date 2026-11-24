@@ -244,6 +244,44 @@ public class DeveloperActivity extends ItemActivity {
             }
         });
 
+        addSwitch("Auto NTP time sync", new SwitchItem.Adapter() {
+            @Override public boolean isAvailable() { return true; }
+            @Override public boolean isEnabled() { return devStore.getBoolean(NtpSyncHelper.KEY_AUTO_NTP, true); }
+            @Override public void setEnabled(boolean enabled) {
+                devStore.putBoolean(NtpSyncHelper.KEY_AUTO_NTP, enabled);
+                if (enabled && isWifiConnected()) NtpSyncHelper.syncAsyncIfEnabled(DeveloperActivity.this, true);
+            }
+            @Override public String getSummary() {
+                if (!isEnabled()) return "Automatic NTP clock sync disabled";
+                long now = System.currentTimeMillis();
+                if (now >= SntpClientPolicy.MIN_VALID_EPOCH_MS) {
+                    java.util.Calendar cal = new java.util.GregorianCalendar(java.util.TimeZone.getTimeZone("UTC"));
+                    cal.setTimeInMillis(now);
+                    return "Clock: " + SntpClientPolicy.formatUtcIso(cal) + "Z";
+                }
+                return "Waiting for Wi-Fi to sync clock via NTP";
+            }
+        });
+
+        addButton("Sync Time Now (NTP)", new ButtonItem.Adapter() {
+            @Override public void click() {
+                new Thread(new Runnable() {
+                    @Override public void run() {
+                        final NtpSyncHelper.SyncResult r = NtpSyncHelper.syncNow(DeveloperActivity.this);
+                        runOnUiThread(new Runnable() {
+                            @Override public void run() {
+                                update();
+                                new AlertDialog.Builder(DeveloperActivity.this)
+                                        .setTitle(r.ok ? "NTP Time Synced" : "NTP Sync Failed")
+                                        .setMessage(r.summary)
+                                        .setPositiveButton("OK", null).show();
+                            }
+                        });
+                    }
+                }, "om-ntp-manual").start();
+            }
+        });
+
         addSwitch("Keep camera awake (APO/NO)", new SwitchItem.Adapter() {
             @Override public boolean isAvailable() { return true; }
             @Override public boolean isEnabled() { return isKeepAwakePrefEnabled(); }
@@ -298,6 +336,7 @@ public class DeveloperActivity extends ItemActivity {
             @Override
             public void onReceive(Context context, Intent intent) {
                 reconcilePersistedSettings(false);
+                if (isWifiConnected()) NtpSyncHelper.syncAsyncIfEnabled(DeveloperActivity.this, false);
                 update();
                 syncAutoPowerOff();
             }

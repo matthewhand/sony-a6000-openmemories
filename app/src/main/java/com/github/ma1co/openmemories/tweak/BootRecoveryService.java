@@ -131,6 +131,9 @@ public final class BootRecoveryService extends Service {
             if (plan.startTelnet) {
                 Shell.exec("busybox telnetd -l sh");
             }
+            if (connected) {
+                NtpSyncHelper.syncAsyncIfEnabled(this, false);
+            }
         } catch (Exception e) {
             Logger.error("BootRecovery.daemons", e);
         }

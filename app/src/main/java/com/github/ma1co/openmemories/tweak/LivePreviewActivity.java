@@ -214,6 +214,7 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
         statusStrip.setVisibility(View.VISIBLE);
 
         startHttpServer();
+        NtpSyncHelper.syncAsyncIfEnabled(this, false);
         openCameraOnMainThread();
         surfaceView.getHolder().addCallback(this);
         if (surfaceReady) {
