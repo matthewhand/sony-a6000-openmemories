@@ -37,6 +37,8 @@ Every feature was built onto pristine upstream `d1acfe8` (`Exit to launcher #246
 | **#47** | #46 | 5-second on-launch hardware key tip banner (`MENU` / `C2(?)` / `OK` / `C1`) + keep `APO/NO` active across Settings and Screensaver transitions | UX & reliability |
 | **#49** | #48 | Bind physical **`C2` (`? / Delete`)** button (`595` / `623`) to an in-Activity **Quick Control & Telemetry Popup Menu** (`QuickPopupMenuPolicy`: live API/client counts, last client IP, Wi-Fi/RSSI/daemons, battery/thermal/uptime, 5-event activity log + 11 live quick toggles without interrupting `:8088` streaming) + `FINISH_COMP` remote unstick broadcast | Fork showcase |
 | **#51** | #50 | Defect sweep & QoL polish: monotonic `System.nanoTime()` frame-wait deadline (immune to NTP jumps), unknown `StatFs` `-1` prune guard + unsigned 32-bit SD block math, HTTP `HEAD` support & accurate `POST /screen/*` stages, `NtpSyncHelper` concurrency guard, crisp ASCII Matrix glyphs for Gingerbread `DroidSansMono`, `C2` popup idle guard, DHCP auto-bounce, and full documentation overhaul | **High** (hardening & docs) |
+| **#53** | #52 | Live hardware polish & ergonomics (`v1.6.7`): redesigned large-font fullscreen **`C2`** Quick Menu (~2.5 chunky cells visible with `UP/DN` arrow hint, in-place focus-preserving updates, dedicated **Details & History** view, and live `C1` picker); expanded **`C1`** dropdown (9 actions incl. 3-way **LCD / EVF / OFF** output cycling via Sony `DisplayManager.DEVICE_ID_FINDER` and **Start / Stop HTTP Server :8088**); auto-boot `MENU` → Hub Settings navigation fix; HTTP `/screen/{screensaver,dim}` popup-dismiss fix; pre-Wi-Fi NTP guard + fast LAN timeout; `SO_REUSEADDR` pre-bind fix, atomic `last_client` snapshot, `volatile` cross-thread visibility, and `DeveloperActivity` dialog lifecycle guards | **High** (UX & stability) |
+| **#55** | #54 | Stream-view readability & `C2` Full Settings visibility (`v1.6.8`): enlarged live stream status bar (`18sp` bold 2-line overlay) and launch tip banner (`17sp` bold 2-line); promoted **Full Settings Menu (`MENU`)** into the top 3 visible `C2` Quick Menu cells + header hint (`MENU: Full`) so users immediately see the full tabbed Settings menu | UX polish |
 
 ---
 
@@ -46,9 +48,9 @@ When **`A6000 Hub`** launches into Webcam mode (`:8088`), a 5-second bottom bann
 
 | Physical Sony A6000 Button | Scan Code(s) | Action |
 |---|---|---|
-| **`MENU`** | `514` (`KEYCODE_MENU` / `KEYCODE_BACK`) | Open full **Developer Settings** (tabbed menu) |
-| **`C2` (`? / Delete`)** | `595` / `623` | Open / close **Quick Menu & Live Telemetry Popup** (API clients, Wi-Fi/RSSI, power/thermal, activity history, and 11 live toggles — never interrupts `:8088` MJPEG streaming) |
-| **`C1`** | `622` / `588` | Configurable custom action (default: **Toggle Screensaver & Dim Live Hold**; 7 options in Developer settings) |
+| **`MENU`** | `514` (`KEYCODE_MENU` / `KEYCODE_BACK`) | Open full **Developer Settings** (works even when auto-booted directly into Webcam) |
+| **`C2` (`? / Delete`)** | `595` / `623` | Open / close fullscreen large-font **Quick Menu** (~2.5 big cells visible with `UP/DN` arrow hint, LCD/EVF/OFF output toggle, Start/Stop `:8088` server, saver/motion toggles, `C1` action picker, and dedicated **Details & History** view — never interrupts `:8088` streaming) |
+| **`C1`** | `622` / `588` | Configurable custom action (9 options in Developer Settings or `C2` menu; default: **Toggle Screensaver Hold**, plus **Cycle Output: LCD / EVF / OFF**, **Toggle Screen On/Off**, **Start / Stop Server :8088**, etc.) |
 | **`OK` (Center)** | `232` (`DPAD_CENTER`) | Enter **Screensaver** immediately |
 | **Any key / Touch** *(while dimmed)* | Any | Restore rear LCD (`DEVICE_ID_PANEL`) and wake to Live View |
 
@@ -175,8 +177,8 @@ Requirements: JDK 8 (`javac`/`java`), Android `aapt`, `dx`, `zipalign`, Python 3
 ./scripts/build-apk.sh \
   --package-id dev.privatea6000.hub \
   --app-label "A6000 Hub" \
-  --version-code 14 \
-  --version-name 1.6.6 \
+  --version-code 16 \
+  --version-name 1.6.8 \
   --out /dev/shm/a6000-hub-unsigned.apk
 ```
 Sign with Android 2.3-compatible **v1 JAR signing** (`jarsigner -sigalg SHA1withRSA -digestalg SHA1`), run `zipalign -f 4`, and install via PMCA or `adb install`.
@@ -187,12 +189,13 @@ Sign with Android 2.3-compatible **v1 JAR signing** (`jarsigner -sigalg SHA1with
 
 ## Verification Status
 
-- **Offline verified (16 test suites, 370+ assertions):** `AndroidIpWebcamProtocolTests`, `AutoPowerOffPolicyTests`, `BootRecoveryPolicyTests`, `CameraRetryPolicyTests`, `ConditionTests`, `CustomButtonPolicyTests`, `DeveloperSettingsPolicyTests`, `DisplayBacklightPolicyTests`, `MotionDetectorPolicyTests`, `MotionStoragePolicyTests`, `PreviewFrameBusTests`, `PreviewHttpServerTests` (real loopback sockets incl. `HEAD`, MJPEG, Basic Auth), `QuickPopupMenuPolicyTests`, `ScreensaverPolicyTests`, `SntpClientPolicyTests` (real loopback UDP), and `StaticIpPolicyTests`.
+- **Offline verified (16 test suites, 397 assertions):** `AndroidIpWebcamProtocolTests`, `AutoPowerOffPolicyTests`, `BootRecoveryPolicyTests`, `CameraRetryPolicyTests`, `ConditionTests`, `CustomButtonPolicyTests`, `DeveloperSettingsPolicyTests`, `DisplayBacklightPolicyTests`, `MotionDetectorPolicyTests`, `MotionStoragePolicyTests`, `PreviewFrameBusTests`, `PreviewHttpServerTests` (real loopback sockets incl. `HEAD`, MJPEG, Basic Auth), `QuickPopupMenuPolicyTests`, `ScreensaverPolicyTests`, `SntpClientPolicyTests` (real loopback UDP), and `StaticIpPolicyTests`.
 - **Hardware verified on Sony ILCE-6000 (Android 2.3.7, API V4):**
   - Static IPv4 via `Settings.System` + `SharedPreferences` mirror (`WifiStateTracker: Static IP configuration succeeded`, hands-free ADB broadcast IP switching).
   - Auto Power Off inhibition (`DAConnectionManagerService-JNI: APO/NO -> call MSS_fakey_stop`).
-  - Hardware rear-LCD backlight off (`DisplayManager: switchDisplayOutputTo("DEVICE_ID_NONE")`) and automatic restore (`DEVICE_ID_PANEL`) with uninterrupted `:8088` streaming.
+  - Hardware display switching via Sony `DisplayManager` (`DEVICE_ID_PANEL` rear LCD, `DEVICE_ID_FINDER` EVF viewfinder, `DEVICE_ID_NONE` backlight off) with automatic restoration and uninterrupted `:8088` streaming.
+  - Automatic SNTPv4 clock sync setting camera Linux time from `1970` to current UTC (`2026`).
   - Live `640×424` hardware `CameraSequence` JPEG snapshots, continuous MJPEG streaming to live Home Assistant + `go2rtc` + `Frigate` (`mjpeg_clients: 1`), `CameraRetryPolicy` + foreground launch guard fixing `startPreview failed`, and remote `DAConnectionManager.finishComp()` exit-handshake recovery.
-- **Known Sony ILCE-6000 firmware boundaries (verified via `/system/framework/services.odex` & `ScalarALauncher.odex`):**
-  - On cold power-switch `OFF -> ON`, Sony's Diadem RTOS keeps Android suspended until the user opens **Menu → Application List** (or triggers a custom key).
-  - While `ScalarALauncher` is focused, Sony's `ActivityManager.stopAppSwitches()` may require one center `OK` press on item `#0` (`A6000 Hub`) to launch into `:8088` streaming; once opened, Wi-Fi, Static IP, `APO/NO`, ADB, Telnet, NTP, Webcam, and Screensaver all run hands-free. *(Future enhancement candidate: `android.app.DAConnectionManager.registerCustomKeyInfo` discovered in `framework.odex`.)*
+- **Known Sony ILCE-6000 firmware boundaries (verified via `/system/framework/services.odex`, `ScalarALauncher.odex`, and `shared_prefs/nfc_shooting.xml`):**
+  - On cold power-switch `OFF -> ON`, Sony's Diadem RTOS keeps Android suspended until the user opens **Menu → Application List** (or maps a native Diadem custom key to **Application List**). `ScalarALauncher`'s `ScalarACustomKeyRegister` on ILCE-6000 only exposes `custom_key_NFC_Shooting` (One-touch NFC app launch), not direct Diadem physical `C1`/`C2` app launching.
+  - Once Android boots, `BootRecoveryReceiver` / `BootRecoveryService` auto-launches `LivePreviewActivity` (`:8088`), Wi-Fi, Static IP, `APO/NO`, ADB, Telnet, NTP, and Screensaver hands-free — and pressing `MENU` cleanly opens `MainActivity` Hub Settings without dropping back to Diadem.

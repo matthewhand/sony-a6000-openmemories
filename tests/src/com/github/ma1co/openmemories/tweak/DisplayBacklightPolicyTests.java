@@ -6,6 +6,7 @@ final class DisplayBacklightPolicyTests {
     public static void main(String[] args) {
         turnsOffOnlyFromPanelAndRestoresCleanly();
         respectsDisabledAndNonPanelOutputs();
+        cyclesPanelFinderOffAndRestoresToPanel();
         System.out.println("PASS DisplayBacklightPolicyTests: " + assertions + " assertions");
     }
 
@@ -31,6 +32,33 @@ final class DisplayBacklightPolicyTests {
         expect(p.planTurnOff(true, "DEVICE_ID_HDMI") == null, "HDMI active fails safe");
         expect(DisplayBacklightPolicy.DEVICE_NONE.equals(p.planTurnOff(true, null)),
                 "null active device allows fallback turn-off");
+    }
+
+    private static void cyclesPanelFinderOffAndRestoresToPanel() {
+        expect(DisplayBacklightPolicy.nextCycleOutput(DisplayBacklightPolicy.Output.PANEL)
+                == DisplayBacklightPolicy.Output.FINDER, "LCD -> EVF");
+        expect(DisplayBacklightPolicy.nextCycleOutput(DisplayBacklightPolicy.Output.FINDER)
+                == DisplayBacklightPolicy.Output.OFF, "EVF -> OFF");
+        expect(DisplayBacklightPolicy.nextCycleOutput(DisplayBacklightPolicy.Output.OFF)
+                == DisplayBacklightPolicy.Output.PANEL, "OFF -> LCD");
+
+        DisplayBacklightPolicy p = new DisplayBacklightPolicy();
+        expect(p.currentOutput() == DisplayBacklightPolicy.Output.PANEL, "starts on PANEL");
+        expect(p.planRestoreToPanel() == null, "restoreToPanel no-op when already PANEL");
+
+        p.markExplicitOutput(DisplayBacklightPolicy.Output.FINDER);
+        expect(p.currentOutput() == DisplayBacklightPolicy.Output.FINDER, "marked FINDER");
+        expect(!p.isBacklightOff(), "FINDER is not backlight off");
+        expect(p.planRestore() == null, "normal restore keeps FINDER active");
+        expect(DisplayBacklightPolicy.DEVICE_PANEL.equals(p.planRestoreToPanel()),
+                "pause/exit restoreToPanel returns to LCD from EVF");
+
+        p.markExplicitOutput(DisplayBacklightPolicy.Output.OFF);
+        expect(p.isBacklightOff(), "explicit OFF marks backlightOff");
+        expect(DisplayBacklightPolicy.DEVICE_PANEL.equals(p.planRestore()), "wake from OFF restores PANEL");
+        p.markRestoredToPanel();
+        expect(p.currentOutput() == DisplayBacklightPolicy.Output.PANEL && !p.isBacklightOff(),
+                "markRestoredToPanel resets cleanly");
     }
 
     private static void expect(boolean ok, String msg) {

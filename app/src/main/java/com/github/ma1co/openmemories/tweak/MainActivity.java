@@ -17,6 +17,7 @@ import java.io.IOException;
 public class MainActivity extends TabActivity {
     public static final File LOG_FILE = new File("/sdcard/TWEAKLOG.TXT");
     static final String KEY_SAVER_ENABLED = "screensaver_enabled";
+    static final String EXTRA_SKIP_AUTO_WEBCAM = "skip_auto_webcam";
 
     private final Handler idleHandler = new Handler();
     private final ScreensaverPolicy idlePolicy = new ScreensaverPolicy();
@@ -74,13 +75,25 @@ public class MainActivity extends TabActivity {
         addTab("protection", "Protection", android.R.drawable.ic_lock_lock, ProtectionActivity.class);
         addTab("developer", "Developer", android.R.drawable.ic_menu_manage, DeveloperActivity.class);
 
+        boolean skipAutoWebcam = getIntent() != null && getIntent().getBooleanExtra(EXTRA_SKIP_AUTO_WEBCAM, false);
         AndroidDeveloperSettingsStore devStore = new AndroidDeveloperSettingsStore(this);
-        if (devStore.getBoolean(LivePreviewActivity.KEY_BOOT_WEBCAM, true)) {
+        if (skipAutoWebcam) {
+            getTabHost().setCurrentTabByTag("developer");
+        } else if (devStore.getBoolean(LivePreviewActivity.KEY_BOOT_WEBCAM, true)) {
             // Position on Developer tab so pressing MENU/BACK inside Webcam lands right on settings.
             getTabHost().setCurrentTabByTag("developer");
             reconcileNetworkBeforeWebcam(devStore);
             autoLaunchHandled = true;
             startActivity(new Intent(this, LivePreviewActivity.class));
+        }
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        if (intent != null && intent.getBooleanExtra(EXTRA_SKIP_AUTO_WEBCAM, false)) {
+            getTabHost().setCurrentTabByTag("developer");
         }
     }
 
@@ -155,11 +168,16 @@ public class MainActivity extends TabActivity {
     }
 
     protected void saveLog() {
+        FileWriter writer = null;
         try {
-            FileWriter writer = new FileWriter(LOG_FILE, true);
+            writer = new FileWriter(LOG_FILE, true);
             writer.write(Logger.getLogs() + "\n");
-            writer.close();
             Logger.reset();
-        } catch (IOException e) {}
+        } catch (IOException ignored) {
+        } finally {
+            if (writer != null) {
+                try { writer.close(); } catch (IOException ignored) {}
+            }
+        }
     }
 }

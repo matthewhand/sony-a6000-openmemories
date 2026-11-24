@@ -2,8 +2,10 @@ package com.github.ma1co.openmemories.tweak;
 
 import android.content.Context;
 import android.net.DhcpInfo;
+import android.net.wifi.WifiInfo;
 import android.net.wifi.WifiManager;
 import android.os.SystemClock;
+import android.util.Log;
 
 import java.lang.reflect.Method;
 import java.util.ArrayList;
@@ -20,8 +22,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * - Reflectively invokes Sony TimeUtil.setCurrentTime on Sony API V6+ bodies.
  */
 final class NtpSyncHelper {
+    private static final String TAG = "OpenMemoriesNtp";
     static final String KEY_AUTO_NTP = "auto_ntp_sync";
-    static final int TIMEOUT_MS = 3000;
+    static final int TIMEOUT_MS = SntpClientPolicy.WAN_TIMEOUT_MS;
     private static final long MIN_AUTO_RETRY_INTERVAL_MS = 15000L;
     private static final AtomicBoolean SYNC_IN_FLIGHT = new AtomicBoolean(false);
     private static volatile long lastAttemptElapsedMs = -1L;
@@ -78,19 +81,22 @@ final class NtpSyncHelper {
         for (int i = 0; i < hosts.length; i++) {
             String h = hosts[i];
             if (h == null || h.trim().length() == 0) continue;
+            String trimmed = h.trim();
             try {
-                long t = SntpClientPolicy.queryNtpServer(h.trim(), SntpClientPolicy.NTP_PORT, TIMEOUT_MS);
+                long t = SntpClientPolicy.queryNtpServer(
+                        trimmed, SntpClientPolicy.NTP_PORT, SntpClientPolicy.timeoutForHostMs(trimmed));
                 if (t >= SntpClientPolicy.MIN_VALID_EPOCH_MS) {
                     epochMs = t;
-                    usedHost = h.trim();
+                    usedHost = trimmed;
                     break;
                 }
-                lastErr = h + ": invalid response";
+                lastErr = trimmed + ": invalid response";
             } catch (Exception e) {
-                lastErr = h + ": " + e.getClass().getSimpleName();
+                lastErr = trimmed + ": " + e.getClass().getSimpleName();
             }
         }
         if (epochMs < SntpClientPolicy.MIN_VALID_EPOCH_MS) {
+            Log.w(TAG, "NTP failed (" + lastErr + ")");
             return new SyncResult(false, -1L, false, false, "NTP failed (" + lastErr + ")");
         }
 
@@ -102,6 +108,7 @@ final class NtpSyncHelper {
                 linuxSet = true;
             } catch (Throwable t) {
                 Logger.error("NtpSyncHelper.linuxDate", t);
+                Log.w(TAG, "Failed to apply BusyBox UTC date", t);
             }
         }
 
@@ -112,7 +119,19 @@ final class NtpSyncHelper {
         String detail = "Synced " + stamp + " via " + usedHost
                 + (sonySet ? " (Linux + Sony RTOS)" : " (Linux; RTOS needs API V6+)");
         Logger.info("NtpSync", detail);
+        Log.i(TAG, detail);
         return new SyncResult(linuxSet || sonySet, epochMs, linuxSet, sonySet, detail);
+    }
+
+    private static boolean hasWifiIpv4(Context context) {
+        try {
+            WifiManager wm = (WifiManager) context.getSystemService(Context.WIFI_SERVICE);
+            if (wm == null || wm.getWifiState() != WifiManager.WIFI_STATE_ENABLED) return false;
+            WifiInfo info = wm.getConnectionInfo();
+            return info != null && info.getIpAddress() != 0;
+        } catch (RuntimeException ignored) {
+            return false;
+        }
     }
 
     static void syncAsyncIfEnabled(final Context context, final boolean force) {
@@ -121,6 +140,7 @@ final class NtpSyncHelper {
         boolean enabled = new AndroidDeveloperSettingsStore(app).getBoolean(KEY_AUTO_NTP, true);
         if (!enabled) return;
         if (!force && System.currentTimeMillis() >= SntpClientPolicy.MIN_VALID_EPOCH_MS) return;
+        if (!force && !hasWifiIpv4(app)) return;
         long nowElapsed = SystemClock.elapsedRealtime();
         long prev = lastAttemptElapsedMs;
         if (!force && prev >= 0L && nowElapsed >= prev && (nowElapsed - prev) < MIN_AUTO_RETRY_INTERVAL_MS) {

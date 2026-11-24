@@ -11,6 +11,7 @@ final class SntpClientPolicyTests {
         requestPacketHeader();
         parseValidAndInvalidResponses();
         busyBoxDateCommandFormat();
+        hostTimeoutSelection();
         loopbackUdpSntpRoundTrip();
         System.out.println("PASS SntpClientPolicyTests: " + assertions + " assertions");
     }
@@ -50,6 +51,18 @@ final class SntpClientPolicyTests {
         String cmd = SntpClientPolicy.formatBusyBoxUtcDateCommand(1767323045000L);
         expect("busybox date -u -s \"2026-01-02 03:04:05\"".equals(cmd), "formats exact BusyBox UTC date command");
         expect(SntpClientPolicy.formatBusyBoxUtcDateCommand(1000L) == null, "rejects invalid epoch");
+    }
+
+    private static void hostTimeoutSelection() {
+        expect(SntpClientPolicy.timeoutForHostMs("10.20.30.1") == SntpClientPolicy.LAN_TIMEOUT_MS, "10.x LAN timeout");
+        expect(SntpClientPolicy.timeoutForHostMs("192.168.1.1") == SntpClientPolicy.LAN_TIMEOUT_MS, "192.168.x LAN timeout");
+        expect(SntpClientPolicy.timeoutForHostMs("172.16.0.1") == SntpClientPolicy.LAN_TIMEOUT_MS, "172.16.x LAN timeout");
+        expect(SntpClientPolicy.timeoutForHostMs("172.31.255.1") == SntpClientPolicy.LAN_TIMEOUT_MS, "172.31.x LAN timeout");
+        expect(SntpClientPolicy.timeoutForHostMs("127.0.0.1") == SntpClientPolicy.LAN_TIMEOUT_MS, "loopback LAN timeout");
+        expect(SntpClientPolicy.timeoutForHostMs("172.15.0.1") == SntpClientPolicy.WAN_TIMEOUT_MS, "172.15.x WAN timeout");
+        expect(SntpClientPolicy.timeoutForHostMs("172.32.0.1") == SntpClientPolicy.WAN_TIMEOUT_MS, "172.32.x WAN timeout");
+        expect(SntpClientPolicy.timeoutForHostMs("pool.ntp.org") == SntpClientPolicy.WAN_TIMEOUT_MS, "pool.ntp.org WAN timeout");
+        expect(SntpClientPolicy.timeoutForHostMs(null) == SntpClientPolicy.WAN_TIMEOUT_MS, "null defaults to WAN timeout");
     }
 
     private static void loopbackUdpSntpRoundTrip() throws Exception {

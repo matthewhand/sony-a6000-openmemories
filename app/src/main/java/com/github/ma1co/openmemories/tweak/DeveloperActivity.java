@@ -45,6 +45,23 @@ public class DeveloperActivity extends ItemActivity {
     private final String[] telnetStartCommand = new String[] { "busybox", "telnetd", "-l", "sh" };
     private String[] adbStartCommand;
     private boolean restoredThisLaunch;
+    private boolean activityResumed;
+    private AlertDialog activeDialog;
+
+    private void showTrackedDialog(AlertDialog.Builder builder) {
+        dismissTrackedDialog();
+        if (!activityResumed || isFinishing()) return;
+        activeDialog = builder.create();
+        activeDialog.show();
+    }
+
+    private void dismissTrackedDialog() {
+        AlertDialog d = activeDialog;
+        activeDialog = null;
+        if (d != null) {
+            try { if (d.isShowing()) d.dismiss(); } catch (RuntimeException ignored) {}
+        }
+    }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -321,20 +338,23 @@ public class DeveloperActivity extends ItemActivity {
 
         addButton("Sync Time Now (NTP)", new ButtonItem.Adapter() {
             @Override public void click() {
-                new Thread(new Runnable() {
+                Thread t = new Thread(new Runnable() {
                     @Override public void run() {
                         final NtpSyncHelper.SyncResult r = NtpSyncHelper.syncNow(DeveloperActivity.this);
                         runOnUiThread(new Runnable() {
                             @Override public void run() {
+                                if (!activityResumed || isFinishing()) return;
                                 update();
-                                new AlertDialog.Builder(DeveloperActivity.this)
+                                showTrackedDialog(new AlertDialog.Builder(DeveloperActivity.this)
                                         .setTitle(r.ok ? "NTP Time Synced" : "NTP Sync Failed")
                                         .setMessage(r.summary)
-                                        .setPositiveButton("OK", null).show();
+                                        .setPositiveButton("OK", null));
                             }
                         });
                     }
-                }, "om-ntp-manual").start();
+                }, "om-ntp-manual");
+                t.setDaemon(true);
+                t.start();
             }
         });
 
@@ -463,7 +483,7 @@ public class DeveloperActivity extends ItemActivity {
         ScrollView scroll = new ScrollView(this);
         scroll.addView(box);
 
-        new AlertDialog.Builder(this)
+        showTrackedDialog(new AlertDialog.Builder(this)
                 .setTitle("Static IPv4 Configuration")
                 .setView(scroll)
                 .setNegativeButton("Cancel", null)
@@ -486,13 +506,13 @@ public class DeveloperActivity extends ItemActivity {
                         }
                         update();
                         if (!r.ok) {
-                            new AlertDialog.Builder(DeveloperActivity.this)
+                            showTrackedDialog(new AlertDialog.Builder(DeveloperActivity.this)
                                     .setTitle("Static IP Error")
                                     .setMessage(r.message)
-                                    .setPositiveButton("OK", null).show();
+                                    .setPositiveButton("OK", null));
                         }
                     }
-                }).show();
+                }));
     }
 
     private void showScreensaverTimingDialog() {
@@ -509,7 +529,7 @@ public class DeveloperActivity extends ItemActivity {
         ScrollView scroll = new ScrollView(this);
         scroll.addView(box);
 
-        new AlertDialog.Builder(this)
+        showTrackedDialog(new AlertDialog.Builder(this)
                 .setTitle("Screensaver Timing")
                 .setView(scroll)
                 .setNegativeButton("Cancel", null)
@@ -527,14 +547,14 @@ public class DeveloperActivity extends ItemActivity {
                                 .commit();
                         update();
                     }
-                }).show();
+                }));
     }
 
     private void showScreensaverStyleDialog() {
         final android.content.SharedPreferences prefs = getSharedPreferences(DeveloperSettingsPolicy.PREFS_NAME, MODE_PRIVATE);
         ScreensaverPolicy.Style cur = ScreensaverPolicy.parseStyle(
                 prefs.getString(ScreensaverPolicy.KEY_STYLE, ScreensaverPolicy.Style.RANDOM.id));
-        new AlertDialog.Builder(this)
+        showTrackedDialog(new AlertDialog.Builder(this)
                 .setTitle("Screensaver Style")
                 .setSingleChoiceItems(ScreensaverPolicy.pickerLabels(), ScreensaverPolicy.pickerIndex(cur),
                         new DialogInterface.OnClickListener() {
@@ -546,8 +566,7 @@ public class DeveloperActivity extends ItemActivity {
                                 update();
                             }
                         })
-                .setNegativeButton("Cancel", null)
-                .show();
+                .setNegativeButton("Cancel", null));
     }
 
     private void showC1ButtonDialog() {
@@ -555,7 +574,7 @@ public class DeveloperActivity extends ItemActivity {
         CustomButtonPolicy.Action cur = CustomButtonPolicy.parseAction(
                 prefs.getString(CustomButtonPolicy.KEY_C1_ACTION, CustomButtonPolicy.Action.TOGGLE_SAVER_DIM.id));
         final CustomButtonPolicy.Action[] actions = CustomButtonPolicy.Action.values();
-        new AlertDialog.Builder(this)
+        showTrackedDialog(new AlertDialog.Builder(this)
                 .setTitle("C1 Custom Button Action")
                 .setSingleChoiceItems(CustomButtonPolicy.labels(), CustomButtonPolicy.indexOf(cur),
                         new DialogInterface.OnClickListener() {
@@ -567,8 +586,7 @@ public class DeveloperActivity extends ItemActivity {
                                 update();
                             }
                         })
-                .setNegativeButton("Cancel", null)
-                .show();
+                .setNegativeButton("Cancel", null));
     }
 
     private void showMotionStorageDialog() {
@@ -589,7 +607,7 @@ public class DeveloperActivity extends ItemActivity {
         ScrollView scroll = new ScrollView(this);
         scroll.addView(box);
 
-        new AlertDialog.Builder(this)
+        showTrackedDialog(new AlertDialog.Builder(this)
                 .setTitle("Motion Storage Lifecycle")
                 .setView(scroll)
                 .setNegativeButton("Cancel", null)
@@ -611,7 +629,7 @@ public class DeveloperActivity extends ItemActivity {
                         } catch (NumberFormatException ignored) {}
                         update();
                     }
-                }).show();
+                }));
     }
 
     private EditText addNumericField(LinearLayout parent, String label, String initial) {
@@ -669,6 +687,7 @@ public class DeveloperActivity extends ItemActivity {
     @Override
     protected void onResume() {
         super.onResume();
+        activityResumed = true;
         SonyPowerBridge.notifyAppInfo(this, getComponentName());
         DeveloperSettingsPolicy.bootstrapSnapshotIfEmpty(devStore, currentRuntimeState());
         if (!restoredThisLaunch) {
@@ -688,8 +707,10 @@ public class DeveloperActivity extends ItemActivity {
 
     @Override
     protected void onPause() {
+        activityResumed = false;
+        dismissTrackedDialog();
         super.onPause();
-        unregisterReceiver(receiver);
+        try { unregisterReceiver(receiver); } catch (RuntimeException ignored) {}
     }
 
     private void bounceWifiToApplyStaticIp() {

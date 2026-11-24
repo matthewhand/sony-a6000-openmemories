@@ -140,7 +140,7 @@ final class MotionStoragePolicy {
         return String.format(Locale.US, "motion_%04d%02d%02d_%02d%02d%02d_%03d.jpg",
                 c.get(Calendar.YEAR), c.get(Calendar.MONTH) + 1, c.get(Calendar.DAY_OF_MONTH),
                 c.get(Calendar.HOUR_OF_DAY), c.get(Calendar.MINUTE), c.get(Calendar.SECOND),
-                Math.abs(seq) % 1000);
+                (seq & 0x7FFFFFFF) % 1000);
     }
 
     static String formatBytesCompact(long bytes) {
