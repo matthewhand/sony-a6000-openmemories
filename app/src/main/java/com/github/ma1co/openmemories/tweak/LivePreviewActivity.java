@@ -47,8 +47,10 @@ import android.widget.TextView;
 import java.io.File;
 import java.io.IOException;
 import java.lang.reflect.Array;
+import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.lang.reflect.Proxy;
 import java.nio.ByteBuffer;
 
 /**
@@ -90,6 +92,7 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
     private final PreviewFrameBus frameBus = new PreviewFrameBus();
     private final SonyDisplayBacklight displayBacklight = new SonyDisplayBacklight();
     private final QuickPopupMenuPolicy.EventHistory eventHistory = new QuickPopupMenuPolicy.EventHistory();
+    private final ShutterCapturePolicy shutterPolicy = new ShutterCapturePolicy();
     private final Object captureLock = new Object();
 
     private AndroidDeveloperSettingsStore devStore;
@@ -97,6 +100,8 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
     private ImageView motionStillView;
     private TextView motionStillBanner;
     private TextView statusStrip;
+    private TextView afBadge;
+    private View shutterFlashOverlay;
     private ScreensaverView saverOverlay;
     private Dialog c2QuickDialog;
     private Dialog c2SubDialog;
@@ -193,7 +198,8 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
             if (!running) return;
             long now = SystemClock.uptimeMillis();
             if ((c2QuickDialog != null && c2QuickDialog.isShowing())
-                    || (c2SubDialog != null && c2SubDialog.isShowing())) {
+                    || (c2SubDialog != null && c2SubDialog.isShowing())
+                    || shutterPolicy.state() != ShutterCapturePolicy.State.IDLE) {
                 screenPolicy.onUserActivity(now);
             }
             ScreensaverPolicy.Stage prev = screenPolicy.stage();
@@ -228,6 +234,29 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
     private final Runnable startCameraPipelineTask = new Runnable() {
         @Override public void run() {
             startCameraPipelineIfReady();
+        }
+    };
+
+    private final Runnable shutterFlashHideTask = new Runnable() {
+        @Override public void run() {
+            if (shutterFlashOverlay != null) shutterFlashOverlay.setVisibility(View.GONE);
+        }
+    };
+
+    private final Runnable shutterTimeoutTask = new Runnable() {
+        @Override public void run() {
+            finishShutterCapture(ShutterCapturePolicy.SHUTTER_STATUS_ERROR, true);
+        }
+    };
+
+    private final Runnable resumeSequenceAfterCaptureTask = new Runnable() {
+        @Override public void run() {
+            if (!running || !surfaceReady || shutterPolicy.isCapturing()) return;
+            if (cameraEx != null && normalCamera != null && cameraSequence == null) {
+                startPreviewAndSequenceOnMainThread(surfaceView.getHolder());
+            } else if (cameraEx == null && !cameraStartPending) {
+                startCameraPipelineIfReady();
+            }
         }
     };
 
@@ -277,6 +306,24 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
                 FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT);
         stripLp.gravity = Gravity.TOP;
         root.addView(statusStrip, stripLp);
+
+        afBadge = new TextView(this);
+        afBadge.setTypeface(Typeface.MONOSPACE, Typeface.BOLD);
+        afBadge.setTextSize(22f);
+        afBadge.setTextColor(Color.rgb(250, 204, 21));
+        afBadge.setBackgroundColor(Color.argb(210, 10, 15, 24));
+        afBadge.setPadding(20, 10, 20, 10);
+        afBadge.setVisibility(View.GONE);
+        FrameLayout.LayoutParams afLp = new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT);
+        afLp.gravity = Gravity.CENTER;
+        root.addView(afBadge, afLp);
+
+        shutterFlashOverlay = new View(this);
+        shutterFlashOverlay.setBackgroundColor(Color.argb(190, 255, 255, 255));
+        shutterFlashOverlay.setVisibility(View.GONE);
+        root.addView(shutterFlashOverlay, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
 
         saverOverlay = new ScreensaverView(this);
         saverOverlay.setVisibility(View.GONE);
@@ -364,6 +411,12 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
         uiHandler.removeCallbacks(startCameraPipelineTask);
         uiHandler.removeCallbacks(uiTick);
         uiHandler.removeCallbacks(telemetryTick);
+        uiHandler.removeCallbacks(shutterFlashHideTask);
+        uiHandler.removeCallbacks(shutterTimeoutTask);
+        uiHandler.removeCallbacks(resumeSequenceAfterCaptureTask);
+        cancelActiveShutterIfNeeded();
+        if (afBadge != null) afBadge.setVisibility(View.GONE);
+        if (shutterFlashOverlay != null) shutterFlashOverlay.setVisibility(View.GONE);
         dismissC2QuickPopup();
         clearMotionStillOverlay();
         saverOverlay.clearGalleryBitmap();
@@ -1043,7 +1096,23 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
         if (screenPolicy.stage() != ScreensaverPolicy.Stage.ACTIVE) {
             if (action == KeyEvent.ACTION_DOWN) {
                 consumedWakeScan = scan;
-                wakeToLive("key");
+                wakeToLive(ShutterCapturePolicy.isAnyShutterScanCode(scan) ? "shutter" : "key");
+            }
+            return true;
+        }
+        if (ShutterCapturePolicy.isS1ScanCode(scan)) {
+            if (action == KeyEvent.ACTION_DOWN && event.getRepeatCount() == 0) {
+                screenPolicy.onUserActivity(SystemClock.uptimeMillis());
+                handleShutterS1Down();
+            } else if (action == KeyEvent.ACTION_UP) {
+                handleShutterS1Up();
+            }
+            return true;
+        }
+        if (ShutterCapturePolicy.isS2ScanCode(scan)) {
+            if (action == KeyEvent.ACTION_DOWN && event.getRepeatCount() == 0) {
+                screenPolicy.onUserActivity(SystemClock.uptimeMillis());
+                handleShutterS2Down();
             }
             return true;
         }
@@ -1060,6 +1129,167 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
             }
         }
         return super.dispatchKeyEvent(event);
+    }
+
+    private void updateAfBadgeVisual() {
+        if (afBadge == null) return;
+        ShutterCapturePolicy.State st = shutterPolicy.state();
+        String text = ShutterCapturePolicy.formatAfBadge(st);
+        if (text.length() == 0) {
+            afBadge.setVisibility(View.GONE);
+            return;
+        }
+        if (st == ShutterCapturePolicy.State.AF_LOCKED) {
+            afBadge.setTextColor(Color.rgb(74, 222, 128));
+        } else if (st == ShutterCapturePolicy.State.AF_FAILED) {
+            afBadge.setTextColor(Color.rgb(248, 113, 113));
+        } else if (st == ShutterCapturePolicy.State.CAPTURING) {
+            afBadge.setTextColor(Color.rgb(56, 189, 248));
+        } else {
+            afBadge.setTextColor(Color.rgb(250, 204, 21));
+        }
+        afBadge.setText(text);
+        afBadge.setVisibility(View.VISIBLE);
+    }
+
+    private void handleShutterS1Down() {
+        if (!running || normalCamera == null || cameraEx == null) return;
+        if (!shutterPolicy.onS1Down()) return;
+        updateAfBadgeVisual();
+        try {
+            normalCamera.autoFocus(new Camera.AutoFocusCallback() {
+                @Override public void onAutoFocus(final boolean success, Camera camera) {
+                    uiHandler.post(new Runnable() {
+                        @Override public void run() {
+                            if (!running) return;
+                            if (shutterPolicy.onAutoFocusComplete(success)) {
+                                updateAfBadgeVisual();
+                            }
+                        }
+                    });
+                }
+            });
+        } catch (Throwable t) {
+            Log.w(TAG, "autoFocus failed: " + t.getClass().getSimpleName());
+            if (shutterPolicy.onAutoFocusComplete(false)) {
+                updateAfBadgeVisual();
+            }
+        }
+    }
+
+    private void handleShutterS1Up() {
+        if (!shutterPolicy.onS1Up()) return;
+        updateAfBadgeVisual();
+        try {
+            if (normalCamera != null) normalCamera.cancelAutoFocus();
+        } catch (Throwable ignored) {}
+    }
+
+    private void handleShutterS2Down() {
+        if (!running || cameraEx == null || normalCamera == null) {
+            showBriefBanner("Camera not ready for capture");
+            return;
+        }
+        if (!shutterPolicy.onS2Down()) return;
+
+        long now = SystemClock.uptimeMillis();
+        uiHandler.removeCallbacks(startCameraPipelineTask);
+        uiHandler.removeCallbacks(resumeSequenceAfterCaptureTask);
+        uiHandler.removeCallbacks(shutterTimeoutTask);
+
+        // Immediate crisp visual shutter flash + feedback badge & banner
+        updateAfBadgeVisual();
+        if (shutterFlashOverlay != null) {
+            shutterFlashOverlay.setVisibility(View.VISIBLE);
+            uiHandler.removeCallbacks(shutterFlashHideTask);
+            uiHandler.postDelayed(shutterFlashHideTask, ShutterCapturePolicy.FLASH_DURATION_MS);
+        }
+        showBriefBanner("SHUTTER: Capturing 24MP photo...", ShutterCapturePolicy.CAPTURE_TIMEOUT_MS);
+        eventHistory.record(now, "Shutter S2 pressed (24MP capture)");
+        frameBus.setCameraState("CAPTURING_PHOTO", "", activePresetName);
+
+        // Pause CameraSequence so Sony CameraEx can fire native burstableTakePicture() to SD card
+        stopSequenceAndWorkers();
+
+        try {
+            final Object camExRef;
+            synchronized (captureLock) {
+                camExRef = cameraEx;
+            }
+            if (camExRef == null) throw new IllegalStateException("CameraEx released");
+
+            Class<?> listenerCls = Class.forName("com.sony.scalar.hardware.CameraEx$ShutterListener");
+            Object listenerProxy = Proxy.newProxyInstance(
+                    listenerCls.getClassLoader(),
+                    new Class<?>[] { listenerCls },
+                    new InvocationHandler() {
+                        @Override public Object invoke(Object proxy, Method method, Object[] args) {
+                            if ("onShutter".equals(method.getName()) && args != null && args.length >= 1) {
+                                final int st = (args[0] instanceof Integer)
+                                        ? ((Integer) args[0]).intValue()
+                                        : ShutterCapturePolicy.SHUTTER_STATUS_ERROR;
+                                uiHandler.post(new Runnable() {
+                                    @Override public void run() { finishShutterCapture(st, false); }
+                                });
+                            }
+                            return null;
+                        }
+                    });
+            camExRef.getClass().getMethod("setShutterListener", listenerCls).invoke(camExRef, listenerProxy);
+            uiHandler.postDelayed(shutterTimeoutTask, ShutterCapturePolicy.CAPTURE_TIMEOUT_MS);
+            camExRef.getClass().getMethod("burstableTakePicture").invoke(camExRef);
+            Log.i(TAG, "Triggered CameraEx.burstableTakePicture()");
+        } catch (Throwable t) {
+            Throwable cause = unwrap(t);
+            Log.e(TAG, "burstableTakePicture failed: " + cause.getClass().getSimpleName() + ": " + cause.getMessage(), cause);
+            finishShutterCapture(ShutterCapturePolicy.SHUTTER_STATUS_ERROR, false);
+        }
+    }
+
+    private void finishShutterCapture(int status, boolean timedOut) {
+        uiHandler.removeCallbacks(shutterTimeoutTask);
+        if (!shutterPolicy.onCaptureFinished(status)) return;
+
+        synchronized (captureLock) {
+            if (cameraEx != null) {
+                try { cameraEx.getClass().getMethod("cancelTakePicture").invoke(cameraEx); } catch (Throwable ignored) {}
+                try {
+                    Class<?> listenerCls = Class.forName("com.sony.scalar.hardware.CameraEx$ShutterListener");
+                    cameraEx.getClass().getMethod("setShutterListener", listenerCls).invoke(cameraEx, new Object[] { null });
+                } catch (Throwable ignored) {}
+            }
+        }
+        updateAfBadgeVisual();
+        String msg = timedOut
+                ? "SHUTTER TIMEOUT — resuming stream"
+                : ShutterCapturePolicy.formatCaptureResultBanner(status, shutterPolicy.photosTaken());
+        Log.i(TAG, "Capture finished (status=" + status + ", timedOut=" + timedOut + "): " + msg);
+        eventHistory.record(SystemClock.uptimeMillis(), msg);
+        if (running) {
+            showBriefBanner(msg, 3500L);
+            if (surfaceReady) {
+                uiHandler.removeCallbacks(resumeSequenceAfterCaptureTask);
+                uiHandler.postDelayed(resumeSequenceAfterCaptureTask, ShutterCapturePolicy.SEQUENCE_RESUME_DELAY_MS);
+            }
+        }
+    }
+
+    private void cancelActiveShutterIfNeeded() {
+        boolean wasCapturing = shutterPolicy.isCapturing();
+        boolean hadAf = shutterPolicy.state() != ShutterCapturePolicy.State.IDLE;
+        shutterPolicy.reset();
+        synchronized (captureLock) {
+            if (wasCapturing && cameraEx != null) {
+                try { cameraEx.getClass().getMethod("cancelTakePicture").invoke(cameraEx); } catch (Throwable ignored) {}
+                try {
+                    Class<?> listenerCls = Class.forName("com.sony.scalar.hardware.CameraEx$ShutterListener");
+                    cameraEx.getClass().getMethod("setShutterListener", listenerCls).invoke(cameraEx, new Object[] { null });
+                } catch (Throwable ignored) {}
+            }
+            if (hadAf && normalCamera != null) {
+                try { normalCamera.cancelAutoFocus(); } catch (Throwable ignored) {}
+            }
+        }
     }
 
     @Override public boolean onTouchEvent(MotionEvent event) {
@@ -1368,9 +1598,11 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
         synchronized (captureLock) {
             if (cameraEx == null || normalCamera == null || cameraSequence != null) return;
             try {
-                normalCamera.setPreviewDisplay(holder);
-                normalCamera.startPreview();
-                previewStarted = true;
+                if (!previewStarted) {
+                    normalCamera.setPreviewDisplay(holder);
+                    normalCamera.startPreview();
+                    previewStarted = true;
+                }
 
                 Class<?> exClass = Class.forName("com.sony.scalar.hardware.CameraEx");
                 Class<?> seqClass = Class.forName("com.sony.scalar.hardware.CameraSequence");

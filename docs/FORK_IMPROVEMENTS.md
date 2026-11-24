@@ -2,7 +2,7 @@
 
 This document summarizes every architectural, functional, reliability, and UX improvement built in this fork on top of upstream [`ma1co/OpenMemories-Tweak`](https://github.com/ma1co/OpenMemories-Tweak) (`d1acfe8`, *"Exit to launcher #246"*).
 
-All business logic is factored into **pure-Java, dependency-free `*Policy` classes** verified offline across **16 test suites** (`./scripts/run-tests.sh`) before every API-10 DEX `035` APK build (`./scripts/build-apk.sh`).
+All business logic is factored into **pure-Java, dependency-free `*Policy` classes** verified offline across **17 test suites** (`./scripts/run-tests.sh`) before every API-10 DEX `035` APK build (`./scripts/build-apk.sh`).
 
 ---
 
@@ -12,7 +12,7 @@ All business logic is factored into **pure-Java, dependency-free `*Policy` class
 |---|---|---|
 | Build system | Legacy Gradle / Android Studio plugin (broken on modern JDKs) | Reproducible offline shell pipeline ([`scripts/build-apk.sh`](../scripts/build-apk.sh)) using `javac -source 7 -target 7`, `aapt`, `dx` (`DEX 035`), `zipalign`, and SHA-pinned upstream native libs (`libadbd.so`, `libprotectiontweak.so`, `libtweak.so`) |
 | Java compatibility | 7 Java 8 lambdas incompatible with `-source 7` / Gingerbread `dx` | Clean Java 7 anonymous classes across all activities |
-| Automated testing | None | 16 pure-Java + real loopback socket/UDP test suites ([`scripts/run-tests.sh`](../scripts/run-tests.sh)) executed automatically before every APK build |
+| Automated testing | None | 17 pure-Java + real loopback socket/UDP test suites ([`scripts/run-tests.sh`](../scripts/run-tests.sh)) executed automatically before every APK build |
 | Package ID flexibility | Hardcoded `com.github.ma1co.openmemories.tweak` | `--package-id`, `--app-label`, `--version-code`, `--version-name` flags for clean side-by-side Gingerbread permission grants |
 
 ---
@@ -101,6 +101,9 @@ All business logic is factored into **pure-Java, dependency-free `*Policy` class
     - **Compact pinned header:** Navigation hint (`UP/DN Move | OK Select | C2 Close`) + 2 crisp live status lines (endpoint/FPS/clients, Wi-Fi/battery/output).
     - **~2.5 chunky cells visible at once:** Large `23sp` bold title + `15sp` subtitle buttons (`132px` min height, vivid cyan D-pad focus border) with in-place refresh so focus and scroll position never jump while toggling.
     - **12 quick actions:** `Display: LCD/EVF/OFF`, `Server :8088: ON/OFF`, `Screensaver Now`, `Live Hold`, `Next Style`, `Debug HUD`, `Motion Wake`, `SD Motion Save`, `C1 Key` picker, `Sync Clock (NTP)`, **`Details & History`** (dedicated fullscreen scrollable view with full API/clients/SSID/RSSI/ADB/Telnet/battery/thermal/uptime + 5-event rolling log), and `Hub Settings`.
+- **Physical Shutter 24 MP Photo Capture While Streaming (`ShutterCapturePolicy`, PR #59):**
+  - Half-press (`ISV_KEY_S1_1 = 516` / `ISV_KEY_S1_2 = 517`) invokes `normalCamera.autoFocus()` and renders a bold center focus pill (`[ AF... ]` → green `[ AF LOCKED ]` / red `[ AF NO LOCK ]`).
+  - Full-press (`ISV_KEY_S2 = 518`) flashes a `180ms` white shutter-blink overlay, pauses `CameraSequence`, triggers Sony's native `CameraEx.burstableTakePicture()` (saving full 24 MP RAW/JPEG directly to `/sdcard/DCIM/`), calls `cancelTakePicture()` on `ShutterListener.onShutter()`, shows `PHOTO #N SAVED TO SD (24MP)`, and automatically resumes `CameraSequence` `:8088` streaming (with a 6s timeout watchdog and `CameraRetryPolicy` fallback). HTTP `/snapshot.jpg` and motion wake remain strictly zero-shutter.
 - **Sony ILCE-6000 Diadem Custom Key Note:** Verified in `ScalarALauncher.odex` and `nfc_shooting.xml` that ILCE-6000's native `ScalarACustomKeyRegister` only supports `custom_key_NFC_Shooting` (One-touch NFC tap); for 1-press Diadem access without NFC, map a Diadem custom key to **Application List** (or rely on `Auto boot recovery`).
 
 ---
