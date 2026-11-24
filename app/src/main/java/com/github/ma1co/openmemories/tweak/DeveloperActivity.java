@@ -118,19 +118,6 @@ public class DeveloperActivity extends ItemActivity {
             @Override public void click() { showStaticIpDialog(); }
         });
 
-        addSwitch("5-min Wi-Fi watchdog (OFF-ack)", new SwitchItem.Adapter() {
-            @Override public boolean isAvailable() { return true; }
-            @Override public boolean isEnabled() { return PeriodicWifiService.isArmed(DeveloperActivity.this); }
-            @Override public void setEnabled(boolean enabled) {
-                PeriodicWifiService.setArmed(DeveloperActivity.this, enabled);
-                DeveloperSettingsPolicy.recordBooleanIfPersisting(devStore, DeveloperSettingsPolicy.KEY_WANT_WATCHDOG, enabled);
-                if (persistSwitch != null) persistSwitch.update();
-            }
-            @Override public String getSummary() {
-                return "Watchdog: " + PeriodicWifiService.shortStatus(DeveloperActivity.this);
-            }
-        });
-
         addSwitch("Enable ADB", new SwitchItem.Adapter() {
             private int getAdbPid() { return Procfs.findProcess(adbStartCommand); }
             private void enableAdb() throws NativeException { Shell.execAndroid(TextUtils.join(" ", adbStartCommand) + " &"); }
@@ -346,7 +333,6 @@ public class DeveloperActivity extends ItemActivity {
     private void snapshotCurrentStateToPrefs() {
         DeveloperSettingsPolicy.recordBooleanIfPersisting(devStore, DeveloperSettingsPolicy.KEY_WANT_WIFI, isWifiEnabled());
         DeveloperSettingsPolicy.recordBooleanIfPersisting(devStore, DeveloperSettingsPolicy.KEY_WANT_STATIC_IP, StaticIpPolicy.isStaticEnabled(staticIpStore));
-        DeveloperSettingsPolicy.recordBooleanIfPersisting(devStore, DeveloperSettingsPolicy.KEY_WANT_WATCHDOG, PeriodicWifiService.isArmed(this));
         DeveloperSettingsPolicy.recordBooleanIfPersisting(devStore, DeveloperSettingsPolicy.KEY_WANT_ADB, Procfs.findProcess(adbStartCommand) != -1);
         DeveloperSettingsPolicy.recordBooleanIfPersisting(devStore, DeveloperSettingsPolicy.KEY_WANT_TELNET, Procfs.findProcess(telnetStartCommand) != -1);
         DeveloperSettingsPolicy.recordTrustedSsidIfAvailable(devStore, getConnectedSsid());
@@ -359,7 +345,6 @@ public class DeveloperActivity extends ItemActivity {
                 isWifiConnected(),
                 getConnectedSsid(),
                 StaticIpPolicy.isStaticEnabled(staticIpStore),
-                PeriodicWifiService.isArmed(this),
                 Procfs.findProcess(adbStartCommand) != -1,
                 Procfs.findProcess(telnetStartCommand) != -1);
         DeveloperSettingsPolicy.ReconcilePlan plan = DeveloperSettingsPolicy.planRestore(desired, state);
@@ -371,9 +356,6 @@ public class DeveloperActivity extends ItemActivity {
         }
         if (allowRadioToggle && plan.enableWifi) {
             setWifiEnabled(true);
-        }
-        if (allowRadioToggle && plan.armWatchdog) {
-            PeriodicWifiService.setArmed(this, true);
         }
         if (plan.startAdb) {
             try { Shell.execAndroid(TextUtils.join(" ", adbStartCommand) + " &"); }
