@@ -1,7 +1,9 @@
 package com.github.ma1co.openmemories.tweak;
 
 import android.app.TabActivity;
+import android.content.Context;
 import android.content.Intent;
+import android.net.wifi.WifiManager;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.SystemClock;
@@ -19,6 +21,7 @@ public class MainActivity extends TabActivity {
     private final Handler idleHandler = new Handler();
     private final ScreensaverPolicy idlePolicy = new ScreensaverPolicy();
     private boolean resumed;
+    private boolean autoLaunchHandled;
     private final Runnable idleCheck = new Runnable() {
         @Override public void run() {
             if (!resumed) return;
@@ -63,6 +66,40 @@ public class MainActivity extends TabActivity {
         addTab("region", "Region", android.R.drawable.ic_menu_mapmode, RegionActivity.class);
         addTab("protection", "Protection", android.R.drawable.ic_lock_lock, ProtectionActivity.class);
         addTab("developer", "Developer", android.R.drawable.ic_menu_manage, DeveloperActivity.class);
+
+        AndroidDeveloperSettingsStore devStore = new AndroidDeveloperSettingsStore(this);
+        if (devStore.getBoolean(LivePreviewActivity.KEY_BOOT_WEBCAM, true)) {
+            // Position on Developer tab so pressing MENU/BACK inside Webcam lands right on settings.
+            getTabHost().setCurrentTabByTag("developer");
+            reconcileNetworkBeforeWebcam(devStore);
+            autoLaunchHandled = true;
+            startActivity(new Intent(this, LivePreviewActivity.class));
+        }
+    }
+
+    private void reconcileNetworkBeforeWebcam(AndroidDeveloperSettingsStore devStore) {
+        try {
+            DeveloperSettingsPolicy.Snapshot desired = DeveloperSettingsPolicy.read(devStore);
+            AndroidStaticIpStore ipStore = new AndroidStaticIpStore(this);
+            WifiManager wifi = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
+            boolean wifiOn = wifi != null && (wifi.getWifiState() == WifiManager.WIFI_STATE_ENABLED
+                    || wifi.getWifiState() == WifiManager.WIFI_STATE_ENABLING);
+            DeveloperSettingsPolicy.RuntimeState state = new DeveloperSettingsPolicy.RuntimeState(
+                    wifiOn, false, "", StaticIpPolicy.isStaticEnabled(ipStore), false, false);
+            DeveloperSettingsPolicy.ReconcilePlan plan = DeveloperSettingsPolicy.planRestore(desired, state);
+            if (plan.applyStaticIp) {
+                StaticIpPolicy.Config saved = StaticIpPolicy.readSavedConfig(ipStore);
+                if (saved != null) StaticIpPolicy.applyStatic(ipStore, saved);
+            }
+            if (plan.inhibitApo) {
+                SonyPowerBridge.applyAutoPowerOffMode(this, AutoPowerOffPolicy.MODE_DISABLE);
+            }
+            if (plan.enableWifi && wifi != null) {
+                wifi.setWifiEnabled(true);
+            }
+        } catch (RuntimeException e) {
+            Logger.error("MainActivity.autoReconcile", e);
+        }
     }
 
     protected void addTab(String tag, String label, int iconId, Class activity) {
@@ -87,6 +124,10 @@ public class MainActivity extends TabActivity {
         Logger.info("MainActivity", "application start");
         super.onResume();
         resumed = true;
+        if (autoLaunchHandled) {
+            // Returning from LivePreviewActivity via MENU/BACK stays cleanly in Developer settings.
+            autoLaunchHandled = false;
+        }
         resetIdleTimer();
     }
 

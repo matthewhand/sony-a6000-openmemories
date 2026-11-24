@@ -51,6 +51,7 @@ import java.nio.ByteBuffer;
 public final class LivePreviewActivity extends Activity implements SurfaceHolder.Callback {
     static final String KEY_MOTION_WAKE = "motion_wake_enabled";
     static final String KEY_BOOT_WEBCAM = "boot_start_webcam";
+    static final String KEY_DIM_BACKLIGHT_OFF = "dim_backlight_off";
 
     private static final String TAG = "OpenMemoriesWebcam";
     private static final long UI_TICK_MS = 60L;
@@ -65,6 +66,7 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
     private final ScreensaverPolicy screenPolicy = new ScreensaverPolicy();
     private final MotionDetectorPolicy motionPolicy = new MotionDetectorPolicy();
     private final PreviewFrameBus frameBus = new PreviewFrameBus();
+    private final SonyDisplayBacklight displayBacklight = new SonyDisplayBacklight();
     private final Object captureLock = new Object();
 
     private AndroidDeveloperSettingsStore devStore;
@@ -91,6 +93,7 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
     private volatile String cachedIp = "offline";
     private volatile int cachedRssi = -85;
     private volatile boolean cachedStaticOn;
+    private volatile boolean connectedServicesReconciled;
     private volatile int cachedBatteryLevel = -1;
     private volatile float cachedBatteryTemp = Float.NaN;
     private volatile float cachedBatteryVoltage = -1.0f;
@@ -99,6 +102,7 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
     private Thread motionThread;
     private long saverEnteredAtMs;
     private boolean screenEnabled = true;
+    private boolean dimBacklightOffEnabled = true;
     private int consumedWakeScan = -1;
 
     private final PreviewHttpServer.ControlHooks httpHooks = new PreviewHttpServer.ControlHooks() {
@@ -199,6 +203,8 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
         super.onResume();
         screenEnabled = devStore.getBoolean(MainActivity.KEY_SAVER_ENABLED, true);
         motionWakeEnabled = devStore.getBoolean(KEY_MOTION_WAKE, true);
+        dimBacklightOffEnabled = devStore.getBoolean(KEY_DIM_BACKLIGHT_OFF, true);
+        displayBacklight.restore(this);
 
         SonyPowerBridge.notifyAppInfo(this, getComponentName());
         SonyPowerBridge.applyAutoPowerOffMode(this, AutoPowerOffPolicy.MODE_DISABLE);
@@ -231,6 +237,7 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
     @Override protected void onPause() {
         running = false;
         uiHandler.removeCallbacksAndMessages(null);
+        displayBacklight.restore(this);
         frameBus.close();
         stopHttpServer();
         surfaceView.getHolder().removeCallback(this);
@@ -238,6 +245,11 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
         try { unregisterReceiver(batteryReceiver); } catch (RuntimeException ignored) {}
         SonyPowerBridge.applyAutoPowerOffMode(this, AutoPowerOffPolicy.MODE_NORMAL);
         super.onPause();
+    }
+
+    @Override protected void onDestroy() {
+        displayBacklight.release(this);
+        super.onDestroy();
     }
 
     @Override public void surfaceCreated(SurfaceHolder holder) {
@@ -313,6 +325,7 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
     }
 
     private void wakeToLive(String reason) {
+        displayBacklight.restore(this);
         screenPolicy.wake(SystemClock.elapsedRealtime(), reason);
         saverOverlay.setVisibility(View.GONE);
         statusStrip.setVisibility(View.VISIBLE);
@@ -320,6 +333,7 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
     }
 
     private void switchToScreensaver() {
+        displayBacklight.restore(this);
         saverEnteredAtMs = SystemClock.elapsedRealtime();
         screenPolicy.enterScreensaverNow(saverEnteredAtMs);
         statusStrip.setVisibility(View.GONE);
@@ -333,13 +347,16 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
         statusStrip.setVisibility(View.GONE);
         saverOverlay.setVisibility(View.VISIBLE);
         saverOverlay.step(0.0f, true);
+        displayBacklight.turnOff(this, dimBacklightOffEnabled);
     }
 
     private void applyStageVisuals(ScreensaverPolicy.Stage stage, long now) {
         if (stage == ScreensaverPolicy.Stage.ACTIVE) {
+            displayBacklight.restore(this);
             if (saverOverlay.getVisibility() != View.GONE) saverOverlay.setVisibility(View.GONE);
             if (statusStrip.getVisibility() != View.VISIBLE) statusStrip.setVisibility(View.VISIBLE);
         } else if (stage == ScreensaverPolicy.Stage.SCREENSAVER) {
+            displayBacklight.restore(this);
             if (statusStrip.getVisibility() != View.GONE) statusStrip.setVisibility(View.GONE);
             if (saverOverlay.getVisibility() != View.VISIBLE) saverOverlay.setVisibility(View.VISIBLE);
             long elapsed = now >= saverEnteredAtMs ? (now - saverEnteredAtMs) : 0L;
@@ -348,7 +365,35 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
             if (statusStrip.getVisibility() != View.GONE) statusStrip.setVisibility(View.GONE);
             if (saverOverlay.getVisibility() != View.VISIBLE) saverOverlay.setVisibility(View.VISIBLE);
             saverOverlay.step(0.0f, true);
+            displayBacklight.turnOff(this, dimBacklightOffEnabled);
         }
+    }
+
+    private void reconcileConnectedServicesAsync() {
+        final Context app = getApplicationContext();
+        NtpSyncHelper.syncAsyncIfEnabled(app, false);
+        Thread t = new Thread(new Runnable() {
+            @Override public void run() {
+                try {
+                    WifiManager wm = (WifiManager) app.getSystemService(Context.WIFI_SERVICE);
+                    WifiInfo info = wm == null ? null : wm.getConnectionInfo();
+                    String ssid = info == null ? "" : DeveloperSettingsPolicy.normalizeSsid(info.getSSID());
+                    String adbBin = getApplicationInfo().nativeLibraryDir + "/libadbd.so";
+                    String[] telnetCmd = new String[] { "busybox", "telnetd", "-l", "sh" };
+                    boolean adbRunning = Procfs.findProcess(new String[] { adbBin }) != -1;
+                    boolean telnetRunning = Procfs.findProcess(telnetCmd) != -1;
+                    DeveloperSettingsPolicy.Snapshot desired = DeveloperSettingsPolicy.read(devStore);
+                    DeveloperSettingsPolicy.RuntimeState st = new DeveloperSettingsPolicy.RuntimeState(
+                            true, true, ssid, StaticIpPolicy.isStaticEnabled(new AndroidStaticIpStore(app)),
+                            adbRunning, telnetRunning);
+                    DeveloperSettingsPolicy.ReconcilePlan plan = DeveloperSettingsPolicy.planRestore(desired, st);
+                    if (plan.startAdb) Shell.execAndroid(adbBin + " &");
+                    if (plan.startTelnet) Shell.exec("busybox telnetd -l sh");
+                } catch (Throwable ignored) {}
+            }
+        }, "om-webcam-reconcile");
+        t.setDaemon(true);
+        t.start();
     }
 
     private void bootstrapPersistedTogglesIfEmpty() {
@@ -693,6 +738,11 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
         cachedIp = ipStr;
         cachedRssi = rssi;
         cachedStaticOn = staticOn;
+
+        if (!connectedServicesReconciled && !"offline".equals(ipStr)) {
+            connectedServicesReconciled = true;
+            reconcileConnectedServicesAsync();
+        }
 
         long now = SystemClock.elapsedRealtime();
         int mjpeg = httpServer == null ? 0 : httpServer.mjpegClientCount();
