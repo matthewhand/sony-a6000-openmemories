@@ -40,7 +40,7 @@ final class SonyDisplayBacklight {
     }
 
     void turnOff(Activity activity, boolean enabled) {
-        if (!enabled) return;
+        if (!enabled || policy.isBacklightOff()) return;
         ensureInit();
         String active = readActiveDevice();
         String target = policy.planTurnOff(enabled, active);

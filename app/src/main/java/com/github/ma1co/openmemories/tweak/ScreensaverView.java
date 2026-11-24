@@ -26,6 +26,11 @@ import java.util.Locale;
  * Debug telemetry HUD is optional (default ON, toggleable OFF).
  */
 final class ScreensaverView extends View {
+    /**
+     * Non-zero RGB565 near-black (0x0841) so Sony's hardware video overlay colorkey (0x0000)
+     * never punches the camera overlay through the screensaver canvas.
+     */
+    static final int BG_NON_COLORKEY_BLACK = Color.rgb(8, 8, 8);
     private static final int STAR_COUNT = 64;
     private static final int MATRIX_COLS = 28;
     private static final String MATRIX_GLYPHS = "0123456789ABCDEF$#@*+<>:=ｱｲｳｴｵｶｷｸｹｺｻｼｽｾｿﾀﾁﾂﾃﾄﾅﾆﾇﾈﾉ";
@@ -89,7 +94,7 @@ final class ScreensaverView extends View {
 
     ScreensaverView(Context context) {
         super(context);
-        setBackgroundColor(Color.BLACK);
+        setBackgroundColor(BG_NON_COLORKEY_BLACK);
 
         matrixPaint.setTypeface(Typeface.MONOSPACE);
         matrixPaint.setTextSize(15f);
@@ -202,8 +207,11 @@ final class ScreensaverView extends View {
     }
 
     @Override protected void onDraw(Canvas canvas) {
-        canvas.drawColor(Color.BLACK);
-        if (fullDim || alpha <= 0.005f) return;
+        if (fullDim || alpha <= 0.005f) {
+            canvas.drawColor(Color.BLACK);
+            return;
+        }
+        canvas.drawColor(BG_NON_COLORKEY_BLACK);
 
         int w = getWidth();
         int h = getHeight();

@@ -30,7 +30,10 @@ public class MainActivity extends TabActivity {
                             .getInt(ScreensaverPolicy.KEY_DELAY_SEC, ScreensaverPolicy.DEFAULT_DELAY_SEC));
             if (idlePolicy.evaluate(SystemClock.elapsedRealtime(), delaySec, ScreensaverPolicy.DEFAULT_DIM_SEC)
                     == ScreensaverPolicy.Stage.SCREENSAVER) {
-                startActivity(new Intent(MainActivity.this, ScreensaverActivity.class));
+                boolean autoWebcam = new AndroidDeveloperSettingsStore(MainActivity.this)
+                        .getBoolean(LivePreviewActivity.KEY_BOOT_WEBCAM, true);
+                startActivity(new Intent(MainActivity.this,
+                        autoWebcam ? LivePreviewActivity.class : ScreensaverActivity.class));
                 return;
             }
             if (delaySec > 0) {
