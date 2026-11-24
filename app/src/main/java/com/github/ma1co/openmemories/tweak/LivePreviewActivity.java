@@ -54,6 +54,12 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
     static final String KEY_MOTION_WAKE = "motion_wake_enabled";
     static final String KEY_BOOT_WEBCAM = "boot_start_webcam";
     static final String KEY_DIM_BACKLIGHT_OFF = "dim_backlight_off";
+    static final String EXTRA_APPLY_STATIC_IP = "apply_static_ip";
+    static final String EXTRA_STATIC_IP = "static_ip";
+    static final String EXTRA_STATIC_NETMASK = "static_netmask";
+    static final String EXTRA_STATIC_GATEWAY = "static_gateway";
+    static final String EXTRA_STATIC_DNS1 = "static_dns1";
+    static final String EXTRA_STATIC_DNS2 = "static_dns2";
 
     private static final String TAG = "OpenMemoriesWebcam";
     private static final long UI_TICK_MS = 60L;
@@ -115,6 +121,9 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
     private ScreensaverPolicy.Style saverStyle = ScreensaverPolicy.Style.MATRIX;
     private boolean saverHudEnabled = true;
     private boolean dimBacklightOffEnabled = true;
+    private boolean saverPausedByC1;
+    private CustomButtonPolicy.Action c1Action = CustomButtonPolicy.Action.TOGGLE_SAVER_DIM;
+    private long toastBannerUntilMs;
     private int consumedWakeScan = -1;
 
     private final PreviewHttpServer.ControlHooks httpHooks = new PreviewHttpServer.ControlHooks() {
@@ -154,7 +163,8 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
             if (!running) return;
             long now = SystemClock.elapsedRealtime();
             ScreensaverPolicy.Stage prev = screenPolicy.stage();
-            ScreensaverPolicy.Stage stage = screenPolicy.evaluate(now, saverDelaySec, saverDimSec);
+            int effectiveDelay = saverPausedByC1 ? 0 : saverDelaySec;
+            ScreensaverPolicy.Stage stage = screenPolicy.evaluate(now, effectiveDelay, saverDimSec);
             if (prev != ScreensaverPolicy.Stage.SCREENSAVER && stage == ScreensaverPolicy.Stage.SCREENSAVER) {
                 saverEnteredAtMs = now;
                 lastGalleryLoadMs = 0L;
@@ -162,6 +172,10 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
             }
             if (motionStillUntilMs > 0L && now >= motionStillUntilMs) {
                 clearMotionStillOverlay();
+            }
+            if (toastBannerUntilMs > 0L && now >= toastBannerUntilMs && motionStillUntilMs <= 0L) {
+                toastBannerUntilMs = 0L;
+                motionStillBanner.setVisibility(View.GONE);
             }
             applyStageVisuals(stage, now);
             long nextDelay = (stage == ScreensaverPolicy.Stage.SCREENSAVER) ? UI_TICK_MS : 500L;
@@ -248,8 +262,11 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
         saverHudEnabled = prefs.getBoolean(ScreensaverPolicy.KEY_HUD_ENABLED, true);
         motionWakeEnabled = devStore.getBoolean(KEY_MOTION_WAKE, true);
         dimBacklightOffEnabled = devStore.getBoolean(KEY_DIM_BACKLIGHT_OFF, true);
+        c1Action = CustomButtonPolicy.parseAction(
+                prefs.getString(CustomButtonPolicy.KEY_C1_ACTION, CustomButtonPolicy.Action.TOGGLE_SAVER_DIM.id));
         saverOverlay.setShowHud(saverHudEnabled);
         displayBacklight.restore(this);
+        applyStaticIpFromIntentIfPresent(getIntent());
 
         SonyPowerBridge.notifyAppInfo(this, getComponentName());
         SonyPowerBridge.applyAutoPowerOffMode(this, AutoPowerOffPolicy.MODE_DISABLE);
@@ -311,11 +328,137 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
         stopSequenceAndWorkers();
     }
 
+    @Override protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        applyStaticIpFromIntentIfPresent(intent);
+    }
+
+    private void applyStaticIpFromIntentIfPresent(Intent intent) {
+        if (intent == null || !intent.getBooleanExtra(EXTRA_APPLY_STATIC_IP, false)) return;
+        intent.removeExtra(EXTRA_APPLY_STATIC_IP);
+        String ip = intent.getStringExtra(EXTRA_STATIC_IP);
+        String mask = intent.getStringExtra(EXTRA_STATIC_NETMASK);
+        String gw = intent.getStringExtra(EXTRA_STATIC_GATEWAY);
+        String dns1 = intent.getStringExtra(EXTRA_STATIC_DNS1);
+        String dns2 = intent.getStringExtra(EXTRA_STATIC_DNS2);
+        if (mask == null || mask.length() == 0) mask = StaticIpPolicy.DEFAULT_FALLBACK_NETMASK;
+        if (dns1 == null || dns1.length() == 0) dns1 = gw;
+        if (dns2 == null || dns2.length() == 0) dns2 = StaticIpPolicy.DEFAULT_FALLBACK_DNS2;
+        StaticIpPolicy.Config cfg = new StaticIpPolicy.Config(ip, mask, gw, dns1, dns2);
+        AndroidStaticIpStore ipStore = new AndroidStaticIpStore(this);
+        StaticIpPolicy.Result r = StaticIpPolicy.applyStatic(ipStore, cfg);
+        Logger.info("StaticIp.intent", (r.ok ? "OK: " : "FAIL: ") + r.message);
+        if (r.ok) {
+            DeveloperSettingsPolicy.recordBooleanIfPersisting(devStore, DeveloperSettingsPolicy.KEY_WANT_STATIC_IP, true);
+            DeveloperSettingsPolicy.recordBooleanIfPersisting(devStore, DeveloperSettingsPolicy.KEY_WANT_WIFI, true);
+            String adbBin = getApplicationInfo().nativeLibraryDir + "/libadbd.so";
+            if (Procfs.findProcess(new String[] { adbBin }) != -1) {
+                DeveloperSettingsPolicy.recordBooleanIfPersisting(devStore, DeveloperSettingsPolicy.KEY_WANT_ADB, true);
+            }
+            showBriefBanner("Static IP " + cfg.ip + " applied — reconnecting Wi-Fi...");
+            final WifiManager wm = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
+            if (wm != null) {
+                try {
+                    wm.setWifiEnabled(false);
+                    uiHandler.postDelayed(new Runnable() {
+                        @Override public void run() {
+                            try { wm.setWifiEnabled(true); } catch (RuntimeException ignored) {}
+                        }
+                    }, 1800L);
+                } catch (RuntimeException ignored) {}
+            }
+        }
+    }
+
+    private void showBriefBanner(String msg) {
+        if (motionStillBanner == null) return;
+        motionStillBanner.setText(msg);
+        motionStillBanner.setVisibility(View.VISIBLE);
+        toastBannerUntilMs = SystemClock.elapsedRealtime() + 2600L;
+    }
+
+    private void handleC1CustomButton() {
+        long now = SystemClock.elapsedRealtime();
+        switch (c1Action) {
+            case TOGGLE_SAVER_DIM:
+                saverPausedByC1 = !saverPausedByC1;
+                if (saverPausedByC1) {
+                    wakeToLive("c1");
+                    showBriefBanner("C1: Screensaver & Dim PAUSED (Live Hold)");
+                } else {
+                    wakeToLive("c1");
+                    showBriefBanner("C1: Screensaver & Dim ENABLED (" + saverDelaySec + "s)");
+                }
+                break;
+            case CYCLE_STAGE: {
+                ScreensaverPolicy.Stage next = CustomButtonPolicy.nextStage(screenPolicy.stage());
+                if (next == ScreensaverPolicy.Stage.SCREENSAVER) {
+                    saverPausedByC1 = false;
+                    switchToScreensaver();
+                } else if (next == ScreensaverPolicy.Stage.FULL_DIM) {
+                    saverPausedByC1 = false;
+                    switchToFullDim();
+                } else {
+                    wakeToLive("c1");
+                    showBriefBanner("C1: Live View");
+                }
+                break;
+            }
+            case TOGGLE_DIM_NOW:
+                if (screenPolicy.stage() == ScreensaverPolicy.Stage.FULL_DIM) {
+                    wakeToLive("c1");
+                    showBriefBanner("C1: Display Restored");
+                } else {
+                    saverPausedByC1 = false;
+                    switchToFullDim();
+                }
+                break;
+            case TOGGLE_HUD:
+                saverHudEnabled = !saverHudEnabled;
+                devStore.putBoolean(ScreensaverPolicy.KEY_HUD_ENABLED, saverHudEnabled);
+                saverOverlay.setShowHud(saverHudEnabled);
+                if (screenPolicy.stage() == ScreensaverPolicy.Stage.ACTIVE) {
+                    showBriefBanner("C1: Screensaver HUD " + (saverHudEnabled ? "ON" : "OFF"));
+                }
+                break;
+            case TOGGLE_MOTION:
+                motionWakeEnabled = !motionWakeEnabled;
+                if (!motionWakeEnabled) lastMotionDetected = false;
+                devStore.putBoolean(KEY_MOTION_WAKE, motionWakeEnabled);
+                wakeToLive("c1");
+                showBriefBanner("C1: Motion Wake " + (motionWakeEnabled ? "ON" : "OFF"));
+                break;
+            case NEXT_STYLE:
+                configuredSaverStyle = CustomButtonPolicy.nextConcreteStyle(saverStyle);
+                saverStyle = configuredSaverStyle;
+                getSharedPreferences(DeveloperSettingsPolicy.PREFS_NAME, MODE_PRIVATE)
+                        .edit().putString(ScreensaverPolicy.KEY_STYLE, saverStyle.id).commit();
+                saverOverlay.setStyle(saverStyle);
+                if (screenPolicy.stage() != ScreensaverPolicy.Stage.SCREENSAVER) {
+                    switchToScreensaver();
+                } else {
+                    refreshTelemetry();
+                }
+                break;
+            case DISABLED:
+            default:
+                break;
+        }
+    }
+
     @Override public boolean dispatchKeyEvent(KeyEvent event) {
         if (event == null) return super.dispatchKeyEvent(event);
         int scan = event.getScanCode();
         int code = event.getKeyCode();
         int action = event.getAction();
+
+        if (CustomButtonPolicy.isC1ScanCode(scan) && c1Action != CustomButtonPolicy.Action.DISABLED) {
+            if (action == KeyEvent.ACTION_DOWN && event.getRepeatCount() == 0) {
+                handleC1CustomButton();
+            }
+            return true;
+        }
 
         if (consumedWakeScan == scan && scan != 0) {
             if (action == KeyEvent.ACTION_UP) consumedWakeScan = -1;
@@ -875,7 +1018,9 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
         String motionStr = lastMotionDetected ? "MOTION" : "still";
 
         if (screenPolicy.stage() == ScreensaverPolicy.Stage.ACTIVE) {
-            String remSaver = ScreensaverPolicy.formatCountdown(screenPolicy.remainingToSaverMs(now, saverDelaySec));
+            String remSaver = saverPausedByC1
+                    ? "HOLD(C1)"
+                    : ScreensaverPolicy.formatCountdown(screenPolicy.remainingToSaverMs(now, saverDelaySec));
             String strip = "LIVE " + ipStr + ":8088 | " + state
                     + " " + fps + "fps | cli:" + mjpeg
                     + " | " + motionStr + " | SAVER " + remSaver;
