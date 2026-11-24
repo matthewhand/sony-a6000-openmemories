@@ -30,6 +30,7 @@ import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.TextView;
 
+import java.io.File;
 import java.io.IOException;
 import java.lang.reflect.Array;
 import java.lang.reflect.InvocationTargetException;
@@ -106,7 +107,13 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
     private Thread captureThread;
     private Thread motionThread;
     private long saverEnteredAtMs;
-    private boolean screenEnabled = true;
+    private long lastGalleryLoadMs;
+    private int gallerySlideIdx;
+    private int saverDelaySec = ScreensaverPolicy.DEFAULT_DELAY_SEC;
+    private int saverDimSec = ScreensaverPolicy.DEFAULT_DIM_SEC;
+    private ScreensaverPolicy.Style configuredSaverStyle = ScreensaverPolicy.Style.RANDOM;
+    private ScreensaverPolicy.Style saverStyle = ScreensaverPolicy.Style.MATRIX;
+    private boolean saverHudEnabled = true;
     private boolean dimBacklightOffEnabled = true;
     private int consumedWakeScan = -1;
 
@@ -147,9 +154,11 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
             if (!running) return;
             long now = SystemClock.elapsedRealtime();
             ScreensaverPolicy.Stage prev = screenPolicy.stage();
-            ScreensaverPolicy.Stage stage = screenPolicy.evaluate(now, screenEnabled);
+            ScreensaverPolicy.Stage stage = screenPolicy.evaluate(now, saverDelaySec, saverDimSec);
             if (prev != ScreensaverPolicy.Stage.SCREENSAVER && stage == ScreensaverPolicy.Stage.SCREENSAVER) {
                 saverEnteredAtMs = now;
+                lastGalleryLoadMs = 0L;
+                selectActiveSaverStyle(now);
             }
             if (motionStillUntilMs > 0L && now >= motionStillUntilMs) {
                 clearMotionStillOverlay();
@@ -228,9 +237,18 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
 
     @Override protected void onResume() {
         super.onResume();
-        screenEnabled = devStore.getBoolean(MainActivity.KEY_SAVER_ENABLED, true);
+        android.content.SharedPreferences prefs = getSharedPreferences(DeveloperSettingsPolicy.PREFS_NAME, MODE_PRIVATE);
+        saverDelaySec = ScreensaverPolicy.clampDelaySec(
+                prefs.getInt(ScreensaverPolicy.KEY_DELAY_SEC, ScreensaverPolicy.DEFAULT_DELAY_SEC));
+        saverDimSec = ScreensaverPolicy.clampDimSec(
+                prefs.getInt(ScreensaverPolicy.KEY_DIM_SEC, ScreensaverPolicy.DEFAULT_DIM_SEC));
+        configuredSaverStyle = ScreensaverPolicy.parseStyle(
+                prefs.getString(ScreensaverPolicy.KEY_STYLE, ScreensaverPolicy.Style.RANDOM.id));
+        selectActiveSaverStyle(SystemClock.elapsedRealtime());
+        saverHudEnabled = prefs.getBoolean(ScreensaverPolicy.KEY_HUD_ENABLED, true);
         motionWakeEnabled = devStore.getBoolean(KEY_MOTION_WAKE, true);
         dimBacklightOffEnabled = devStore.getBoolean(KEY_DIM_BACKLIGHT_OFF, true);
+        saverOverlay.setShowHud(saverHudEnabled);
         displayBacklight.restore(this);
 
         SonyPowerBridge.notifyAppInfo(this, getComponentName());
@@ -265,6 +283,7 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
         running = false;
         uiHandler.removeCallbacksAndMessages(null);
         clearMotionStillOverlay();
+        saverOverlay.clearGalleryBitmap();
         displayBacklight.restore(this);
         frameBus.close();
         stopHttpServer();
@@ -400,9 +419,16 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
         refreshTelemetry();
     }
 
+    private void selectActiveSaverStyle(long seed) {
+        saverStyle = ScreensaverPolicy.resolveConcreteStyle(configuredSaverStyle, seed ^ System.nanoTime());
+        if (saverOverlay != null) saverOverlay.setStyle(saverStyle);
+    }
+
     private void switchToScreensaver() {
         displayBacklight.restore(this);
         saverEnteredAtMs = SystemClock.elapsedRealtime();
+        lastGalleryLoadMs = 0L;
+        selectActiveSaverStyle(saverEnteredAtMs);
         screenPolicy.enterScreensaverNow(saverEnteredAtMs);
         statusStrip.setVisibility(View.GONE);
         saverOverlay.setVisibility(View.VISIBLE);
@@ -421,20 +447,45 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
     private void applyStageVisuals(ScreensaverPolicy.Stage stage, long now) {
         if (stage == ScreensaverPolicy.Stage.ACTIVE) {
             displayBacklight.restore(this);
-            if (saverOverlay.getVisibility() != View.GONE) saverOverlay.setVisibility(View.GONE);
+            if (saverOverlay.getVisibility() != View.GONE) {
+                saverOverlay.setVisibility(View.GONE);
+                saverOverlay.clearGalleryBitmap();
+            }
             if (statusStrip.getVisibility() != View.VISIBLE) statusStrip.setVisibility(View.VISIBLE);
         } else if (stage == ScreensaverPolicy.Stage.SCREENSAVER) {
             displayBacklight.restore(this);
             if (statusStrip.getVisibility() != View.GONE) statusStrip.setVisibility(View.GONE);
             if (saverOverlay.getVisibility() != View.VISIBLE) saverOverlay.setVisibility(View.VISIBLE);
+            if (saverStyle == ScreensaverPolicy.Style.GALLERY && (now - lastGalleryLoadMs) >= 6000L) {
+                loadNextGallerySlide(now);
+            }
             long elapsed = now >= saverEnteredAtMs ? (now - saverEnteredAtMs) : 0L;
-            saverOverlay.step(ScreensaverPolicy.computeAlpha(elapsed), false);
+            saverOverlay.step(ScreensaverPolicy.computeAlpha(elapsed, saverDimSec * 1000L), false);
         } else {
             if (statusStrip.getVisibility() != View.GONE) statusStrip.setVisibility(View.GONE);
             if (saverOverlay.getVisibility() != View.VISIBLE) saverOverlay.setVisibility(View.VISIBLE);
             saverOverlay.step(0.0f, true);
             displayBacklight.turnOff(this, dimBacklightOffEnabled);
         }
+    }
+
+    private void loadNextGallerySlide(long nowMs) {
+        lastGalleryLoadMs = nowMs;
+        File[] stills = MotionGalleryStore.listRecentStills(24);
+        if (stills.length == 0) {
+            saverOverlay.clearGalleryBitmap();
+            return;
+        }
+        File target = stills[gallerySlideIdx % stills.length];
+        gallerySlideIdx = (gallerySlideIdx + 1) % stills.length;
+        try {
+            BitmapFactory.Options opts = new BitmapFactory.Options();
+            opts.inSampleSize = 2;
+            Bitmap bmp = BitmapFactory.decodeFile(target.getAbsolutePath(), opts);
+            if (bmp != null) {
+                saverOverlay.setGalleryBitmap(bmp, target.getName());
+            }
+        } catch (Throwable ignored) {}
     }
 
     private void reconcileConnectedServicesAsync() {
@@ -824,7 +875,7 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
         String motionStr = lastMotionDetected ? "MOTION" : "still";
 
         if (screenPolicy.stage() == ScreensaverPolicy.Stage.ACTIVE) {
-            String remSaver = ScreensaverPolicy.formatCountdown(screenPolicy.remainingToSaverMs(now));
+            String remSaver = ScreensaverPolicy.formatCountdown(screenPolicy.remainingToSaverMs(now, saverDelaySec));
             String strip = "LIVE " + ipStr + ":8088 | " + state
                     + " " + fps + "fps | cli:" + mjpeg
                     + " | " + motionStr + " | SAVER " + remSaver;
@@ -832,7 +883,7 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
             statusStrip.setText(strip);
         } else if (screenPolicy.stage() == ScreensaverPolicy.Stage.SCREENSAVER) {
             String mode = cachedStaticOn ? "[STATIC]" : "[DHCP]";
-            String remDim = ScreensaverPolicy.formatCountdown(screenPolicy.remainingToDimMs(now));
+            String remDim = ScreensaverPolicy.formatCountdown(screenPolicy.remainingToDimMs(now, saverDimSec));
             saverOverlay.updateTelemetry(
                     "LIVE " + ipStr + ":8088 " + mode,
                     fps + "fps cli:" + mjpeg + " " + cachedRssi + "dBm",

@@ -44,7 +44,8 @@ public final class BootRecoveryService extends Service {
         started = true;
 
         handler.postDelayed(new Runnable() { @Override public void run() { restoreNetworkPhase(); } }, 2000L);
-        handler.postDelayed(new Runnable() { @Override public void run() { launchUiPhase(); } }, 5000L);
+        // Launch past Sony DAConnectionManagerService's 5s stopAppSwitches() window.
+        handler.postDelayed(new Runnable() { @Override public void run() { launchUiPhase(); } }, 6500L);
         handler.postDelayed(new Runnable() { @Override public void run() { restoreDaemonsIfConnected(); } }, 15000L);
         handler.postDelayed(new Runnable() { @Override public void run() { restoreDaemonsIfConnected(); } }, 25000L);
         handler.postDelayed(new Runnable() { @Override public void run() { restoreDaemonsIfConnected(); } }, 35000L);

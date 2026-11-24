@@ -25,14 +25,15 @@ public class MainActivity extends TabActivity {
     private final Runnable idleCheck = new Runnable() {
         @Override public void run() {
             if (!resumed) return;
-            boolean enabled = getSharedPreferences(DeveloperSettingsPolicy.PREFS_NAME, MODE_PRIVATE)
-                    .getBoolean(KEY_SAVER_ENABLED, true);
-            if (idlePolicy.evaluate(SystemClock.elapsedRealtime(), enabled)
+            int delaySec = ScreensaverPolicy.clampDelaySec(
+                    getSharedPreferences(DeveloperSettingsPolicy.PREFS_NAME, MODE_PRIVATE)
+                            .getInt(ScreensaverPolicy.KEY_DELAY_SEC, ScreensaverPolicy.DEFAULT_DELAY_SEC));
+            if (idlePolicy.evaluate(SystemClock.elapsedRealtime(), delaySec, ScreensaverPolicy.DEFAULT_DIM_SEC)
                     == ScreensaverPolicy.Stage.SCREENSAVER) {
                 startActivity(new Intent(MainActivity.this, ScreensaverActivity.class));
                 return;
             }
-            if (enabled) {
+            if (delaySec > 0) {
                 idleHandler.postDelayed(this, 5000L);
             }
         }
@@ -41,9 +42,11 @@ public class MainActivity extends TabActivity {
     private void resetIdleTimer() {
         idlePolicy.onUserActivity(SystemClock.elapsedRealtime());
         idleHandler.removeCallbacks(idleCheck);
-        if (resumed && getSharedPreferences(DeveloperSettingsPolicy.PREFS_NAME, MODE_PRIVATE)
-                .getBoolean(KEY_SAVER_ENABLED, true)) {
-            idleHandler.postDelayed(idleCheck, ScreensaverPolicy.IDLE_TO_SAVER_MS);
+        int delaySec = ScreensaverPolicy.clampDelaySec(
+                getSharedPreferences(DeveloperSettingsPolicy.PREFS_NAME, MODE_PRIVATE)
+                        .getInt(ScreensaverPolicy.KEY_DELAY_SEC, ScreensaverPolicy.DEFAULT_DELAY_SEC));
+        if (resumed && delaySec > 0) {
+            idleHandler.postDelayed(idleCheck, delaySec * 1000L);
         }
     }
 
