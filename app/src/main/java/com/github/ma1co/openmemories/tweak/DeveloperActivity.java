@@ -120,6 +120,7 @@ public class DeveloperActivity extends ItemActivity {
                     StaticIpPolicy.Result r = StaticIpPolicy.restoreDhcp(staticIpStore);
                     Logger.info("StaticIp", (r.ok ? "OK: " : "FAIL: ") + r.message);
                     if (!r.ok) throw new IllegalStateException(r.message);
+                    if (isWifiEnabled()) bounceWifiToApplyStaticIp();
                 }
                 DeveloperSettingsPolicy.recordBooleanIfPersisting(devStore, DeveloperSettingsPolicy.KEY_WANT_STATIC_IP, enabled);
                 if (persistSwitch != null) persistSwitch.update();
@@ -209,6 +210,16 @@ public class DeveloperActivity extends ItemActivity {
 
         addButton("C1 custom button action...", new ButtonItem.Adapter() {
             @Override public void click() { showC1ButtonDialog(); }
+        });
+
+        addInfo("Webcam hardware keys", new InfoItem.Adapter() {
+            @Override public boolean isAvailable() { return true; }
+            @Override public String getValue() {
+                CustomButtonPolicy.Action cur = CustomButtonPolicy.parseAction(
+                        getSharedPreferences(DeveloperSettingsPolicy.PREFS_NAME, MODE_PRIVATE)
+                                .getString(CustomButtonPolicy.KEY_C1_ACTION, CustomButtonPolicy.Action.TOGGLE_SAVER_DIM.id));
+                return "MENU: Settings · C2(?): Quick Menu · OK: Saver · C1: " + cur.label;
+            }
         });
 
         addSwitch("Screensaver debug HUD", new SwitchItem.Adapter() {
@@ -492,8 +503,8 @@ public class DeveloperActivity extends ItemActivity {
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
         box.setPadding(16, 8, 16, 8);
-        final EditText delayIn = addNumericField(box, "Seconds until screensaver (0 = off)", String.valueOf(curDelay));
-        final EditText dimIn = addNumericField(box, "Seconds in screensaver until LCD dim (0 = never)", String.valueOf(curDim));
+        final EditText delayIn = addNumericField(box, "Seconds until screensaver (0 = off, default 60)", String.valueOf(curDelay));
+        final EditText dimIn = addNumericField(box, "Seconds in screensaver until LCD off (0 = never, default 300)", String.valueOf(curDim));
 
         ScrollView scroll = new ScrollView(this);
         scroll.addView(box);

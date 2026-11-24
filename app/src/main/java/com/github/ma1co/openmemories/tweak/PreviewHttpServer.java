@@ -211,47 +211,49 @@ final class PreviewHttpServer {
                 }
             }
 
-            if ("GET".equals(method)) {
+            boolean isGet = "GET".equals(method);
+            boolean isHead = "HEAD".equals(method);
+            if (isGet || isHead) {
                 if ("/".equals(path) || "/status".equals(path)) {
-                    writeSimpleResponse(out, 200, "OK", "application/json", buildStatusJson(hooks.nowMs()), null);
+                    writeSimpleResponse(out, 200, "OK", "application/json", buildStatusJson(hooks.nowMs()), null, isHead);
                     return;
                 }
                 if ("/health".equals(path)) {
                     long now = hooks.nowMs();
                     boolean healthy = bus.latestIfFresh(now, PreviewFrameBus.DEFAULT_FRESH_MS) != null;
                     writeSimpleResponse(out, healthy ? 200 : 503, healthy ? "OK" : "Service Unavailable",
-                            "application/json", buildStatusJson(now), null);
+                            "application/json", buildStatusJson(now), null, isHead);
                     return;
                 }
                 if ("/snapshot.jpg".equals(path) || "/snapshot.jpeg".equals(path) || "/shot.jpg".equals(path)) {
                     PreviewFrameBus.Frame frame = bus.latestIfFresh(hooks.nowMs(), PreviewFrameBus.DEFAULT_FRESH_MS);
                     if (frame == null) {
                         writeSimpleResponse(out, 503, "Service Unavailable", "application/json",
-                                "{\"ok\":false,\"error\":\"no_fresh_frame\"}\n", null);
+                                "{\"ok\":false,\"error\":\"no_fresh_frame\"}\n", null, isHead);
                         return;
                     }
                     writeBinaryResponse(out, 200, "OK", "image/jpeg", frame.jpeg,
                             "Cache-Control: no-store\r\n"
                             + "X-Sony-Source: camera-sequence\r\n"
-                            + "X-Sony-Deliberate-Capture: false\r\n");
+                            + "X-Sony-Deliberate-Capture: false\r\n", isHead);
                     return;
                 }
-                if ("/liveview.mjpeg".equals(path) || "/stream.mjpeg".equals(path) || "/video".equals(path)) {
+                if (isGet && ("/liveview.mjpeg".equals(path) || "/stream.mjpeg".equals(path) || "/video".equals(path))) {
                     streamMjpeg(out);
                     return;
                 }
                 if ("/status.json".equals(path)) {
                     writeSimpleResponse(out, 200, "OK", "application/json",
-                            AndroidIpWebcamProtocol.buildStatusJson(buildIpWebcamTelemetry()), null);
+                            AndroidIpWebcamProtocol.buildStatusJson(buildIpWebcamTelemetry()), null, isHead);
                     return;
                 }
                 if ("/sensors.json".equals(path)) {
                     hooks.onSensorsPolled(hooks.nowMs());
                     writeSimpleResponse(out, 200, "OK", "application/json",
-                            AndroidIpWebcamProtocol.buildSensorsJson(buildIpWebcamTelemetry()), null);
+                            AndroidIpWebcamProtocol.buildSensorsJson(buildIpWebcamTelemetry()), null, isHead);
                     return;
                 }
-                if (path.startsWith("/settings/")) {
+                if (isGet && path.startsWith("/settings/")) {
                     handleIpWebcamSetting(out, path.substring("/settings/".length()), query);
                     return;
                 }
@@ -259,27 +261,33 @@ final class PreviewHttpServer {
 
             if ("POST".equals(method)) {
                 if ("/screen/wake".equals(path)) {
+                    String prev = hooks.screenStage();
                     hooks.wakeScreen("http");
                     writeSimpleResponse(out, 200, "OK", "application/json",
-                            "{\"ok\":true,\"action\":\"wake\",\"screen_stage\":\"" + escapeJson(hooks.screenStage()) + "\"}\n", null);
+                            "{\"ok\":true,\"action\":\"wake\",\"previous_stage\":\"" + escapeJson(prev)
+                            + "\",\"screen_stage\":\"ACTIVE\"}\n", null);
                     return;
                 }
                 if ("/screen/screensaver".equals(path)) {
+                    String prev = hooks.screenStage();
                     hooks.enterScreensaver();
                     writeSimpleResponse(out, 200, "OK", "application/json",
-                            "{\"ok\":true,\"action\":\"screensaver\",\"screen_stage\":\"" + escapeJson(hooks.screenStage()) + "\"}\n", null);
+                            "{\"ok\":true,\"action\":\"screensaver\",\"previous_stage\":\"" + escapeJson(prev)
+                            + "\",\"screen_stage\":\"SCREENSAVER\"}\n", null);
                     return;
                 }
                 if ("/screen/dim".equals(path)) {
+                    String prev = hooks.screenStage();
                     hooks.enterFullDim();
                     writeSimpleResponse(out, 200, "OK", "application/json",
-                            "{\"ok\":true,\"action\":\"dim\",\"screen_stage\":\"" + escapeJson(hooks.screenStage()) + "\"}\n", null);
+                            "{\"ok\":true,\"action\":\"dim\",\"previous_stage\":\"" + escapeJson(prev)
+                            + "\",\"screen_stage\":\"FULL_DIM\"}\n", null);
                     return;
                 }
             }
 
             writeSimpleResponse(out, 404, "Not Found", "application/json",
-                    "{\"ok\":false,\"error\":\"not_found\"}\n", null);
+                    "{\"ok\":false,\"error\":\"not_found\"}\n", null, isHead);
         } catch (IOException ignored) {
             // Client disconnected or timed out cleanly.
         }
@@ -377,6 +385,8 @@ final class PreviewHttpServer {
         sb.append(",\"frame_age_ms\":").append(ageMs);
         sb.append(",\"clients\":").append(activeClients.get());
         sb.append(",\"mjpeg_clients\":").append(mjpegClients.get());
+        sb.append(",\"total_requests\":").append(totalRequests.get());
+        sb.append(",\"last_client\":\"").append(escapeJson(formatLastClientSummary(nowMs))).append('"');
         sb.append(",\"screen_stage\":\"").append(escapeJson(hooks.screenStage())).append('"');
         sb.append(",\"motion_detect_enabled\":").append(hooks.motionDetectEnabled());
         sb.append(",\"motion_detected\":").append(hooks.motionDetected());
@@ -417,11 +427,18 @@ final class PreviewHttpServer {
 
     private static void writeSimpleResponse(OutputStream out, int code, String reason,
                                             String contentType, String body, String extraHeaders) throws IOException {
-        writeBinaryResponse(out, code, reason, contentType, body.getBytes("UTF-8"), extraHeaders);
+        writeSimpleResponse(out, code, reason, contentType, body, extraHeaders, false);
+    }
+
+    private static void writeSimpleResponse(OutputStream out, int code, String reason,
+                                            String contentType, String body, String extraHeaders,
+                                            boolean headOnly) throws IOException {
+        writeBinaryResponse(out, code, reason, contentType, body.getBytes("UTF-8"), extraHeaders, headOnly);
     }
 
     private static void writeBinaryResponse(OutputStream out, int code, String reason,
-                                            String contentType, byte[] body, String extraHeaders) throws IOException {
+                                            String contentType, byte[] body, String extraHeaders,
+                                            boolean headOnly) throws IOException {
         StringBuilder sb = new StringBuilder(160);
         sb.append("HTTP/1.1 ").append(code).append(' ').append(reason).append("\r\n");
         sb.append("Content-Type: ").append(contentType).append("\r\n");
@@ -429,7 +446,9 @@ final class PreviewHttpServer {
         if (extraHeaders != null) sb.append(extraHeaders);
         sb.append("Connection: close\r\n\r\n");
         out.write(sb.toString().getBytes("UTF-8"));
-        out.write(body);
+        if (!headOnly) {
+            out.write(body);
+        }
         out.flush();
     }
 

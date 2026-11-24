@@ -178,6 +178,9 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
         @Override public void run() {
             if (!running) return;
             long now = SystemClock.elapsedRealtime();
+            if (c2QuickDialog != null && c2QuickDialog.isShowing()) {
+                screenPolicy.onUserActivity(now);
+            }
             ScreensaverPolicy.Stage prev = screenPolicy.stage();
             int effectiveDelay = saverPausedByC1 ? 0 : saverDelaySec;
             ScreensaverPolicy.Stage stage = screenPolicy.evaluate(now, effectiveDelay, saverDimSec);
@@ -694,9 +697,22 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
             }
             case SYNC_NTP_NOW:
                 eventHistory.record(now, "Manual NTP sync requested");
-                NtpSyncHelper.syncAsyncIfEnabled(this, true);
-                showBriefBanner("NTP clock sync started in background...");
-                showC2QuickPopupInternal();
+                showBriefBanner("Syncing clock via NTP...");
+                new Thread(new Runnable() {
+                    @Override public void run() {
+                        final NtpSyncHelper.SyncResult r = NtpSyncHelper.syncNow(LivePreviewActivity.this);
+                        uiHandler.post(new Runnable() {
+                            @Override public void run() {
+                                if (!running) return;
+                                eventHistory.record(SystemClock.elapsedRealtime(), "NTP: " + r.summary);
+                                showBriefBanner(r.summary, 3500L);
+                                if (c2QuickDialog != null && c2QuickDialog.isShowing()) {
+                                    showC2QuickPopupInternal();
+                                }
+                            }
+                        });
+                    }
+                }, "om-ntp-quick").start();
                 break;
             case REFRESH_POPUP:
                 refreshTelemetry();
@@ -1383,6 +1399,7 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
                     + " " + fps + "fps | cli:" + mjpeg
                     + " | " + motionStr + " | SAVER " + remSaver;
             if (err.length() > 0) strip = strip + "\nERR: " + err;
+            statusStrip.setSingleLine(err.length() == 0);
             statusStrip.setText(strip);
         } else if (screenPolicy.stage() == ScreensaverPolicy.Stage.SCREENSAVER) {
             String mode = cachedStaticOn ? "[STATIC]" : "[DHCP]";

@@ -3,6 +3,7 @@ package com.github.ma1co.openmemories.tweak;
 import android.content.Context;
 import android.net.DhcpInfo;
 import android.net.wifi.WifiManager;
+import android.os.SystemClock;
 
 import java.lang.reflect.Method;
 import java.util.ArrayList;
@@ -10,6 +11,7 @@ import java.util.Calendar;
 import java.util.GregorianCalendar;
 import java.util.List;
 import java.util.TimeZone;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Android/Sony SNTP time sync helper.
@@ -20,6 +22,9 @@ import java.util.TimeZone;
 final class NtpSyncHelper {
     static final String KEY_AUTO_NTP = "auto_ntp_sync";
     static final int TIMEOUT_MS = 3000;
+    private static final long MIN_AUTO_RETRY_INTERVAL_MS = 15000L;
+    private static final AtomicBoolean SYNC_IN_FLIGHT = new AtomicBoolean(false);
+    private static volatile long lastAttemptElapsedMs = -1L;
 
     static final class SyncResult {
         final boolean ok;
@@ -116,8 +121,21 @@ final class NtpSyncHelper {
         boolean enabled = new AndroidDeveloperSettingsStore(app).getBoolean(KEY_AUTO_NTP, true);
         if (!enabled) return;
         if (!force && System.currentTimeMillis() >= SntpClientPolicy.MIN_VALID_EPOCH_MS) return;
+        long nowElapsed = SystemClock.elapsedRealtime();
+        long prev = lastAttemptElapsedMs;
+        if (!force && prev >= 0L && nowElapsed >= prev && (nowElapsed - prev) < MIN_AUTO_RETRY_INTERVAL_MS) {
+            return;
+        }
+        if (!SYNC_IN_FLIGHT.compareAndSet(false, true)) return;
+        lastAttemptElapsedMs = nowElapsed;
         Thread t = new Thread(new Runnable() {
-            @Override public void run() { syncNow(app); }
+            @Override public void run() {
+                try {
+                    syncNow(app);
+                } finally {
+                    SYNC_IN_FLIGHT.set(false);
+                }
+            }
         }, "om-ntp-sync");
         t.setDaemon(true);
         t.start();

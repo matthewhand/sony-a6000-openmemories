@@ -147,7 +147,9 @@ final class MotionGalleryStore {
     static long readSdFreeBytes() {
         try {
             StatFs sf = new StatFs("/sdcard");
-            return (long) sf.getAvailableBlocks() * (long) sf.getBlockSize();
+            long blocks = sf.getAvailableBlocks() & 0xFFFFFFFFL;
+            long blockSize = sf.getBlockSize() & 0xFFFFFFFFL;
+            return blocks * blockSize;
         } catch (Throwable ignored) {
             return -1L;
         }
