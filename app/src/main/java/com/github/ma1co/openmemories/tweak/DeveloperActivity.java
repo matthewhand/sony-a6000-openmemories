@@ -207,6 +207,10 @@ public class DeveloperActivity extends ItemActivity {
             @Override public void click() { showScreensaverStyleDialog(); }
         });
 
+        addButton("C1 custom button action...", new ButtonItem.Adapter() {
+            @Override public void click() { showC1ButtonDialog(); }
+        });
+
         addSwitch("Screensaver debug HUD", new SwitchItem.Adapter() {
             @Override public boolean isAvailable() { return true; }
             @Override public boolean isEnabled() { return devStore.getBoolean(ScreensaverPolicy.KEY_HUD_ENABLED, true); }
@@ -527,6 +531,27 @@ public class DeveloperActivity extends ItemActivity {
                                 ScreensaverPolicy.Style picked = ScreensaverPolicy.styleForPickerIndex(which);
                                 if (picked == null) return; // Divider tapped; keep dialog open
                                 prefs.edit().putString(ScreensaverPolicy.KEY_STYLE, picked.id).commit();
+                                dialog.dismiss();
+                                update();
+                            }
+                        })
+                .setNegativeButton("Cancel", null)
+                .show();
+    }
+
+    private void showC1ButtonDialog() {
+        final android.content.SharedPreferences prefs = getSharedPreferences(DeveloperSettingsPolicy.PREFS_NAME, MODE_PRIVATE);
+        CustomButtonPolicy.Action cur = CustomButtonPolicy.parseAction(
+                prefs.getString(CustomButtonPolicy.KEY_C1_ACTION, CustomButtonPolicy.Action.TOGGLE_SAVER_DIM.id));
+        final CustomButtonPolicy.Action[] actions = CustomButtonPolicy.Action.values();
+        new AlertDialog.Builder(this)
+                .setTitle("C1 Custom Button Action")
+                .setSingleChoiceItems(CustomButtonPolicy.labels(), CustomButtonPolicy.indexOf(cur),
+                        new DialogInterface.OnClickListener() {
+                            @Override public void onClick(DialogInterface dialog, int which) {
+                                if (which >= 0 && which < actions.length) {
+                                    prefs.edit().putString(CustomButtonPolicy.KEY_C1_ACTION, actions[which].id).commit();
+                                }
                                 dialog.dismiss();
                                 update();
                             }
