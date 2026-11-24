@@ -91,40 +91,52 @@ final class SonyDisplayBacklight {
         }
     }
 
-    void restore(Activity activity) {
+    boolean restore(Activity activity) {
         String target = policy.planRestore();
         setWindowBrightness(activity, WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE);
-        if (target == null) return;
+        if (target == null) return true;
 
+        boolean switched = false;
         if (displayManager != null && switchOutputMethod != null) {
             try {
                 switchOutputMethod.invoke(displayManager, target);
+                switched = true;
                 Log.i(TAG, "Restored Sony DisplayManager output to " + target);
             } catch (Throwable t) {
                 Log.w(TAG, "DisplayManager restore to " + target + " failed: " + t.getClass().getSimpleName());
             }
         }
-        policy.markRestored();
+        boolean ok = switched || displayManager == null;
+        if (ok) policy.markRestored();
+        return ok;
     }
 
-    void restoreToPanel(Activity activity) {
+    boolean restoreToPanel(Activity activity) {
         String target = policy.planRestoreToPanel();
         setWindowBrightness(activity, WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE);
-        if (target == null) return;
+        if (target == null) return true;
 
+        boolean switched = false;
         if (displayManager != null && switchOutputMethod != null) {
             try {
                 switchOutputMethod.invoke(displayManager, target);
+                switched = true;
                 Log.i(TAG, "Restored Sony DisplayManager output to " + target);
             } catch (Throwable t) {
                 Log.w(TAG, "DisplayManager restoreToPanel failed: " + t.getClass().getSimpleName());
             }
         }
-        policy.markRestoredToPanel();
+        boolean ok = switched || displayManager == null;
+        if (ok) policy.markRestoredToPanel();
+        return ok;
     }
 
     void release(Activity activity) {
-        restoreToPanel(activity);
+        boolean restored = restoreToPanel(activity);
+        if (!restored) {
+            Log.w(TAG, "restoreToPanel failed; keeping DisplayManager for a later retry");
+            return;
+        }
         if (displayManager != null && finishMethod != null) {
             try { finishMethod.invoke(displayManager); } catch (Throwable ignored) {}
         }
