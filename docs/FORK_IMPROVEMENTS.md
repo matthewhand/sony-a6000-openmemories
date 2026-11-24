@@ -105,8 +105,9 @@ All business logic is factored into **pure-Java, dependency-free `*Policy` class
 
 ---
 
-## 8. Automatic RFC 4330 SNTPv4 Time Sync (PRs #24, #51, #53)
+## 8. Automatic RFC 4330 SNTPv4 Time Sync (PRs #24, #51, #53, #57)
 
 - Pure-Java UDP/123 SNTPv4 client (`SntpClientPolicy`, `NtpSyncHelper`) trying `LAN gateway (1s timeout) -> pool.ntp.org (3s) -> time.cloudflare.com (3s)`.
 - Checks active Wi-Fi IPv4 before consuming the 15-second retry cooldown (`AtomicBoolean` in-flight guard), retries cleanly once Wi-Fi connects until synced, and logs sync status to `logcat` (`OpenMemoriesNtp`).
 - Updates Linux/Android time via injection-safe `busybox date -u -s "YYYY-MM-DD HH:MM:SS"` (verified live on ILCE-6000 updating `1970 -> 2026`) and reflectively invokes Sony `com.sony.scalar.sysutil.TimeUtil.setCurrentTime` on Sony API V6+ cameras.
+- Uses `SystemClock.uptimeMillis()` (`CLOCK_MONOTONIC`) instead of `SystemClock.elapsedRealtime()` across all activity timers because Android 2.3.7's `/dev/alarm` driver jumps `elapsedRealtime()` forward when `busybox date -u -s` calls `settimeofday()`, which previously caused an immediate premature `FULL_DIM` (`DEVICE_ID_NONE`) right after boot NTP sync.

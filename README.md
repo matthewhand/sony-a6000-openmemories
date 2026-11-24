@@ -39,6 +39,7 @@ Every feature was built onto pristine upstream `d1acfe8` (`Exit to launcher #246
 | **#51** | #50 | Defect sweep & QoL polish: monotonic `System.nanoTime()` frame-wait deadline (immune to NTP jumps), unknown `StatFs` `-1` prune guard + unsigned 32-bit SD block math, HTTP `HEAD` support & accurate `POST /screen/*` stages, `NtpSyncHelper` concurrency guard, crisp ASCII Matrix glyphs for Gingerbread `DroidSansMono`, `C2` popup idle guard, DHCP auto-bounce, and full documentation overhaul | **High** (hardening & docs) |
 | **#53** | #52 | Live hardware polish & ergonomics (`v1.6.7`): redesigned large-font fullscreen **`C2`** Quick Menu (~2.5 chunky cells visible with `UP/DN` arrow hint, in-place focus-preserving updates, dedicated **Details & History** view, and live `C1` picker); expanded **`C1`** dropdown (9 actions incl. 3-way **LCD / EVF / OFF** output cycling via Sony `DisplayManager.DEVICE_ID_FINDER` and **Start / Stop HTTP Server :8088**); auto-boot `MENU` → Hub Settings navigation fix; HTTP `/screen/{screensaver,dim}` popup-dismiss fix; pre-Wi-Fi NTP guard + fast LAN timeout; `SO_REUSEADDR` pre-bind fix, atomic `last_client` snapshot, `volatile` cross-thread visibility, and `DeveloperActivity` dialog lifecycle guards | **High** (UX & stability) |
 | **#55** | #54 | Stream-view readability & `C2` Full Settings visibility (`v1.6.8`): enlarged live stream status bar (`18sp` bold 2-line overlay) and launch tip banner (`17sp` bold 2-line); promoted **Full Settings Menu (`MENU`)** into the top 3 visible `C2` Quick Menu cells + header hint (`MENU: Full`) so users immediately see the full tabbed Settings menu | UX polish |
+| **#57** | #56 | Fix 11-second post-boot black screen on NTP sync (`v1.6.9`): switched internal monotonic timers from `SystemClock.elapsedRealtime()` to `SystemClock.uptimeMillis()` (`CLOCK_MONOTONIC`) across `LivePreviewActivity`, `MainActivity`, `ScreensaverActivity`, and `NtpSyncHelper` so Gingerbread's `/dev/alarm` RTC jump on `busybox date -u -s` never trips immediate `FULL_DIM` (`DEVICE_ID_NONE`) | **High** (Android 2.3.7 kernel fix) |
 
 ---
 
@@ -177,8 +178,8 @@ Requirements: JDK 8 (`javac`/`java`), Android `aapt`, `dx`, `zipalign`, Python 3
 ./scripts/build-apk.sh \
   --package-id dev.privatea6000.hub \
   --app-label "A6000 Hub" \
-  --version-code 16 \
-  --version-name 1.6.8 \
+  --version-code 17 \
+  --version-name 1.6.9 \
   --out /dev/shm/a6000-hub-unsigned.apk
 ```
 Sign with Android 2.3-compatible **v1 JAR signing** (`jarsigner -sigalg SHA1withRSA -digestalg SHA1`), run `zipalign -f 4`, and install via PMCA or `adb install`.

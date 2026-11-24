@@ -154,7 +154,7 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
     private int consumedWakeScan = -1;
 
     private final PreviewHttpServer.ControlHooks httpHooks = new PreviewHttpServer.ControlHooks() {
-        @Override public long nowMs() { return SystemClock.elapsedRealtime(); }
+        @Override public long nowMs() { return SystemClock.uptimeMillis(); }
         @Override public long epochMs() { return System.currentTimeMillis(); }
         @Override public String screenStage() { return screenPolicy.stage().name(); }
         @Override public boolean motionDetected() { return lastMotionDetected; }
@@ -167,15 +167,15 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
         @Override public float batteryTempCelsius() { return cachedBatteryTemp; }
         @Override public float batteryVoltageVolts() { return cachedBatteryVoltage; }
         @Override public void wakeScreen(final String reason) {
-            eventHistory.record(SystemClock.elapsedRealtime(), "HTTP wake (" + reason + ")");
+            eventHistory.record(SystemClock.uptimeMillis(), "HTTP wake (" + reason + ")");
             uiHandler.post(new Runnable() { @Override public void run() { if (running) wakeToLive(reason); } });
         }
         @Override public void enterScreensaver() {
-            eventHistory.record(SystemClock.elapsedRealtime(), "HTTP enter screensaver");
+            eventHistory.record(SystemClock.uptimeMillis(), "HTTP enter screensaver");
             uiHandler.post(new Runnable() { @Override public void run() { if (running) switchToScreensaver(); } });
         }
         @Override public void enterFullDim() {
-            eventHistory.record(SystemClock.elapsedRealtime(), "HTTP enter full dim");
+            eventHistory.record(SystemClock.uptimeMillis(), "HTTP enter full dim");
             uiHandler.post(new Runnable() { @Override public void run() { if (running) switchToFullDim(); } });
         }
         @Override public void setMotionDetectEnabled(boolean enabled) {
@@ -191,7 +191,7 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
     private final Runnable uiTick = new Runnable() {
         @Override public void run() {
             if (!running) return;
-            long now = SystemClock.elapsedRealtime();
+            long now = SystemClock.uptimeMillis();
             if ((c2QuickDialog != null && c2QuickDialog.isShowing())
                     || (c2SubDialog != null && c2SubDialog.isShowing())) {
                 screenPolicy.onUserActivity(now);
@@ -234,7 +234,7 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
     @Override protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         BootRecoveryPolicy.SHARED.markUiOpened();
-        activityStartedElapsedMs = SystemClock.elapsedRealtime();
+        activityStartedElapsedMs = SystemClock.uptimeMillis();
         eventHistory.record(activityStartedElapsedMs, "Webcam session started");
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         devStore = new AndroidDeveloperSettingsStore(this);
@@ -308,7 +308,7 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
                 prefs.getInt(ScreensaverPolicy.KEY_DIM_SEC, ScreensaverPolicy.DEFAULT_DIM_SEC));
         configuredSaverStyle = ScreensaverPolicy.parseStyle(
                 prefs.getString(ScreensaverPolicy.KEY_STYLE, ScreensaverPolicy.Style.RANDOM.id));
-        selectActiveSaverStyle(SystemClock.elapsedRealtime());
+        selectActiveSaverStyle(SystemClock.uptimeMillis());
         saverHudEnabled = prefs.getBoolean(ScreensaverPolicy.KEY_HUD_ENABLED, ScreensaverPolicy.DEFAULT_HUD_ENABLED);
         motionWakeEnabled = devStore.getBoolean(KEY_MOTION_WAKE, true);
         dimBacklightOffEnabled = devStore.getBoolean(KEY_DIM_BACKLIGHT_OFF, true);
@@ -327,7 +327,7 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
         running = true;
         frameBus.reopen();
         motionPolicy.reset();
-        screenPolicy.wake(SystemClock.elapsedRealtime(), "start");
+        screenPolicy.wake(SystemClock.uptimeMillis(), "start");
         setSurfaceViewParked(false);
         saverOverlay.setVisibility(View.GONE);
         statusStrip.setVisibility(View.VISIBLE);
@@ -342,7 +342,7 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
         NtpSyncHelper.syncAsyncIfEnabled(this, false);
         surfaceView.getHolder().addCallback(this);
         long cooldown = CameraRetryPolicy.reopenCooldownMs(
-                SystemClock.elapsedRealtime(), lastCameraStopElapsedMs);
+                SystemClock.uptimeMillis(), lastCameraStopElapsedMs);
         if (cooldown > 0L) {
             cameraStartPending = true;
             frameBus.setCameraState("WAITING_OVERLAY", "cooldown " + cooldown + "ms", "");
@@ -452,11 +452,11 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
         if (motionStillBanner == null) return;
         motionStillBanner.setText(msg);
         motionStillBanner.setVisibility(View.VISIBLE);
-        toastBannerUntilMs = SystemClock.elapsedRealtime() + durationMs;
+        toastBannerUntilMs = SystemClock.uptimeMillis() + durationMs;
     }
 
     private void toggleHttpServer(String source) {
-        long now = SystemClock.elapsedRealtime();
+        long now = SystemClock.uptimeMillis();
         if (httpServer != null) {
             httpServerPausedByUser = true;
             stopHttpServer();
@@ -473,7 +473,7 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
     }
 
     private void cycleDisplayOutput(String source) {
-        long now = SystemClock.elapsedRealtime();
+        long now = SystemClock.uptimeMillis();
         DisplayBacklightPolicy.Output cur = (screenPolicy.stage() == ScreensaverPolicy.Stage.FULL_DIM
                 || displayBacklight.isBacklightOff())
                 ? DisplayBacklightPolicy.Output.OFF
@@ -497,7 +497,7 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
     }
 
     private void handleC1CustomButton() {
-        long now = SystemClock.elapsedRealtime();
+        long now = SystemClock.uptimeMillis();
         eventHistory.record(now, "C1 pressed (" + c1Action.shortHint + ")");
         switch (c1Action) {
             case TOGGLE_SAVER_DIM:
@@ -594,7 +594,7 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
     }
 
     private QuickPopupMenuPolicy.TelemetrySnapshot buildPopupTelemetrySnapshot() {
-        long now = SystemClock.elapsedRealtime();
+        long now = SystemClock.uptimeMillis();
         String ssid = "--";
         try {
             WifiManager wm = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
@@ -699,7 +699,7 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
             return;
         }
         wakeToLive("c2");
-        eventHistory.record(SystemClock.elapsedRealtime(), "C2 Quick Menu opened");
+        eventHistory.record(SystemClock.uptimeMillis(), "C2 Quick Menu opened");
         showC2QuickPopupInternal();
     }
 
@@ -909,7 +909,7 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
                                     c1Action = actions[which];
                                     getSharedPreferences(DeveloperSettingsPolicy.PREFS_NAME, MODE_PRIVATE)
                                             .edit().putString(CustomButtonPolicy.KEY_C1_ACTION, c1Action.id).commit();
-                                    eventHistory.record(SystemClock.elapsedRealtime(), "C1 -> " + c1Action.label);
+                                    eventHistory.record(SystemClock.uptimeMillis(), "C1 -> " + c1Action.label);
                                     refreshC2QuickPopupInPlace();
                                 }
                                 dismissC2SubDialog();
@@ -922,7 +922,7 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
     }
 
     private void executeC2QuickAction(QuickPopupMenuPolicy.QuickAction act) {
-        long now = SystemClock.elapsedRealtime();
+        long now = SystemClock.uptimeMillis();
         switch (act) {
             case CYCLE_DISPLAY_OUTPUT:
                 cycleDisplayOutput("c2");
@@ -985,7 +985,7 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
                         uiHandler.post(new Runnable() {
                             @Override public void run() {
                                 if (!running) return;
-                                eventHistory.record(SystemClock.elapsedRealtime(), "NTP: " + r.summary);
+                                eventHistory.record(SystemClock.uptimeMillis(), "NTP: " + r.summary);
                                 showBriefBanner(r.summary, 3500L);
                                 refreshC2QuickPopupInPlace();
                             }
@@ -1048,7 +1048,7 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
             return true;
         }
         if (action == KeyEvent.ACTION_DOWN && event.getRepeatCount() == 0) {
-            screenPolicy.onUserActivity(SystemClock.elapsedRealtime());
+            screenPolicy.onUserActivity(SystemClock.uptimeMillis());
             if (code == KeyEvent.KEYCODE_BACK || code == KeyEvent.KEYCODE_MENU
                     || scan == 514) {
                 openHubSettings();
@@ -1068,7 +1068,7 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
                 wakeToLive("touch");
                 return true;
             }
-            screenPolicy.onUserActivity(SystemClock.elapsedRealtime());
+            screenPolicy.onUserActivity(SystemClock.uptimeMillis());
         }
         return super.onTouchEvent(event);
     }
@@ -1118,7 +1118,7 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
     private void wakeWithMotionStill(byte[] jpeg) {
         if (!running) return;
         displayBacklight.restore(this);
-        long now = SystemClock.elapsedRealtime();
+        long now = SystemClock.uptimeMillis();
         screenPolicy.wake(now, "motion");
         setSurfaceViewParked(false);
         saverOverlay.setVisibility(View.GONE);
@@ -1143,7 +1143,7 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
     private void wakeToLive(String reason) {
         clearMotionStillOverlay();
         displayBacklight.restore(this);
-        screenPolicy.wake(SystemClock.elapsedRealtime(), reason);
+        screenPolicy.wake(SystemClock.uptimeMillis(), reason);
         setSurfaceViewParked(false);
         saverOverlay.setVisibility(View.GONE);
         statusStrip.setVisibility(View.VISIBLE);
@@ -1159,7 +1159,7 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
         dismissC2QuickPopup();
         saverPausedByC1 = false;
         displayBacklight.restore(this);
-        saverEnteredAtMs = SystemClock.elapsedRealtime();
+        saverEnteredAtMs = SystemClock.uptimeMillis();
         lastGalleryLoadMs = 0L;
         toastBannerUntilMs = 0L;
         if (motionStillBanner != null) motionStillBanner.setVisibility(View.GONE);
@@ -1177,7 +1177,7 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
         saverPausedByC1 = false;
         toastBannerUntilMs = 0L;
         if (motionStillBanner != null) motionStillBanner.setVisibility(View.GONE);
-        screenPolicy.enterFullDimNow(SystemClock.elapsedRealtime());
+        screenPolicy.enterFullDimNow(SystemClock.uptimeMillis());
         setSurfaceViewParked(true);
         statusStrip.setVisibility(View.GONE);
         saverOverlay.setVisibility(View.VISIBLE);
@@ -1494,7 +1494,7 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
             }
         }
         if (hadCamera) {
-            lastCameraStopElapsedMs = SystemClock.elapsedRealtime();
+            lastCameraStopElapsedMs = SystemClock.uptimeMillis();
         }
     }
 
@@ -1549,7 +1549,7 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
 
                 if (jpeg != null) {
                     emptyReads = 0;
-                    frameBus.publish(jpeg, SystemClock.elapsedRealtime());
+                    frameBus.publish(jpeg, SystemClock.uptimeMillis());
                     PreviewHttpServer srvSnap = httpServer;
                     int mjpegCount = srvSnap == null ? 0 : srvSnap.mjpegClientCount();
                     long sleepMs = (mjpegCount <= 0) ? 200L : (mjpegCount == 1 ? 35L : 65L);
@@ -1588,7 +1588,7 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
                     lastMotionDetected = false;
                     continue;
                 }
-                long now = SystemClock.elapsedRealtime();
+                long now = SystemClock.uptimeMillis();
                 boolean needForWake = screenPolicy.stage() != ScreensaverPolicy.Stage.ACTIVE;
                 boolean needForHa = lastSensorsPollMs >= 0L && (now - lastSensorsPollMs) < SENSORS_POLL_WINDOW_MS;
                 if (!needForWake && !needForHa) {
@@ -1671,7 +1671,7 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
             NtpSyncHelper.syncAsyncIfEnabled(getApplicationContext(), false);
         }
 
-        long now = SystemClock.elapsedRealtime();
+        long now = SystemClock.uptimeMillis();
         PreviewHttpServer srv = httpServer;
         if (srv != null) {
             int reqs = srv.totalRequestCount();

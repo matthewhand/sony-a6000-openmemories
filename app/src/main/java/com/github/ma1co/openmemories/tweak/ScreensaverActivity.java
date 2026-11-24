@@ -40,7 +40,7 @@ public final class ScreensaverActivity extends Activity {
     private final Runnable frameTick = new Runnable() {
         @Override public void run() {
             if (!running) return;
-            long now = SystemClock.elapsedRealtime();
+            long now = SystemClock.uptimeMillis();
             int evalDelay = delaySec > 0 ? delaySec : ScreensaverPolicy.DEFAULT_DELAY_SEC;
             ScreensaverPolicy.Stage stage = policy.evaluate(now, evalDelay, dimSec);
             if (stage == ScreensaverPolicy.Stage.FULL_DIM) {
@@ -84,7 +84,7 @@ public final class ScreensaverActivity extends Activity {
         dimSec = ScreensaverPolicy.clampDimSec(prefs.getInt(ScreensaverPolicy.KEY_DIM_SEC, ScreensaverPolicy.DEFAULT_DIM_SEC));
         ScreensaverPolicy.Style configured = ScreensaverPolicy.parseStyle(
                 prefs.getString(ScreensaverPolicy.KEY_STYLE, ScreensaverPolicy.Style.RANDOM.id));
-        style = ScreensaverPolicy.resolveConcreteStyle(configured, SystemClock.elapsedRealtime() ^ System.nanoTime());
+        style = ScreensaverPolicy.resolveConcreteStyle(configured, SystemClock.uptimeMillis() ^ System.nanoTime());
         boolean hudOn = prefs.getBoolean(ScreensaverPolicy.KEY_HUD_ENABLED, ScreensaverPolicy.DEFAULT_HUD_ENABLED);
         dimBacklightOff = prefs.getBoolean(LivePreviewActivity.KEY_DIM_BACKLIGHT_OFF, true);
 
@@ -94,7 +94,7 @@ public final class ScreensaverActivity extends Activity {
 
         waking = false;
         running = true;
-        saverStartedAt = SystemClock.elapsedRealtime();
+        saverStartedAt = SystemClock.uptimeMillis();
         lastGalleryLoadMs = 0L;
         policy.enterScreensaverNow(saverStartedAt);
         if (style == ScreensaverPolicy.Style.GALLERY) {
@@ -178,7 +178,7 @@ public final class ScreensaverActivity extends Activity {
         } catch (RuntimeException ignored) {}
 
         String mode = staticOn ? "[STATIC]" : "[DHCP]";
-        String rem = ScreensaverPolicy.formatCountdown(policy.remainingToDimMs(SystemClock.elapsedRealtime(), dimSec));
+        String rem = ScreensaverPolicy.formatCountdown(policy.remainingToDimMs(SystemClock.uptimeMillis(), dimSec));
         view.updateTelemetry(
                 ipStr + " " + mode,
                 (ssid.length() == 0 ? "--" : ssid) + "  " + rssi + " dBm",
