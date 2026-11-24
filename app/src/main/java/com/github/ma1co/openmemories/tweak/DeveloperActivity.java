@@ -1,7 +1,9 @@
 package com.github.ma1co.openmemories.tweak;
 
+import android.app.AlertDialog;
 import android.content.BroadcastReceiver;
 import android.content.Context;
+import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.net.ConnectivityManager;
@@ -11,6 +13,10 @@ import android.net.wifi.WifiManager;
 import android.os.Bundle;
 import android.text.TextUtils;
 import android.text.format.Formatter;
+import android.widget.EditText;
+import android.widget.LinearLayout;
+import android.widget.ScrollView;
+import android.widget.TextView;
 
 import java.util.concurrent.TimeoutException;
 
@@ -22,6 +28,8 @@ public class DeveloperActivity extends ItemActivity {
     private WifiManager wifiManager;
     private BroadcastReceiver receiver;
     private BaseItem wifiSwitch;
+    private BaseItem staticIpSwitch;
+    private AndroidStaticIpStore staticIpStore;
     private final AutoPowerOffPolicy apoPolicy = new AutoPowerOffPolicy();
     private final String[] telnetStartCommand = new String[] { "busybox", "telnetd", "-l", "sh" };
     private String[] adbStartCommand;
@@ -32,6 +40,7 @@ public class DeveloperActivity extends ItemActivity {
 
         connectivityManager = (ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
         wifiManager = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
+        staticIpStore = new AndroidStaticIpStore(this);
         adbStartCommand = new String[] { getApplicationInfo().nativeLibraryDir + "/libadbd.so" };
 
         wifiSwitch = addSwitch("Enable Wifi", new SwitchItem.Adapter() {
@@ -78,6 +87,32 @@ public class DeveloperActivity extends ItemActivity {
                         return "Wifi disabled";
                 }
             }
+        });
+
+        staticIpSwitch = addSwitch("Static IPv4 (Settings.System)", new SwitchItem.Adapter() {
+            @Override public boolean isAvailable() { return true; }
+            @Override public boolean isEnabled() { return StaticIpPolicy.isStaticEnabled(staticIpStore); }
+            @Override public void setEnabled(boolean enabled) throws Exception {
+                if (enabled) {
+                    StaticIpPolicy.Config cfg = StaticIpPolicy.resolveConfig(
+                            staticIpStore, AndroidStaticIpStore.readActiveDhcpConfig(wifiManager));
+                    if (cfg == null) {
+                        throw new IllegalStateException("Connect to Wi-Fi once or use Configure Static IP first");
+                    }
+                    StaticIpPolicy.Result r = StaticIpPolicy.applyStatic(staticIpStore, cfg);
+                    Logger.info("StaticIp", (r.ok ? "OK: " : "FAIL: ") + r.message);
+                    if (!r.ok) throw new IllegalStateException(r.message);
+                } else {
+                    StaticIpPolicy.Result r = StaticIpPolicy.restoreDhcp(staticIpStore);
+                    Logger.info("StaticIp", (r.ok ? "OK: " : "FAIL: ") + r.message);
+                    if (!r.ok) throw new IllegalStateException(r.message);
+                }
+            }
+            @Override public String getSummary() { return StaticIpPolicy.summary(staticIpStore); }
+        });
+
+        addButton("Configure Static IP...", new ButtonItem.Adapter() {
+            @Override public void click() { showStaticIpDialog(); }
         });
 
         addSwitch("Enable Telnet", new SwitchItem.Adapter() {
@@ -207,6 +242,58 @@ public class DeveloperActivity extends ItemActivity {
                 syncAutoPowerOff();
             }
         };
+    }
+
+    private void showStaticIpDialog() {
+        StaticIpPolicy.Config seed = StaticIpPolicy.resolveConfig(
+                staticIpStore, AndroidStaticIpStore.readActiveDhcpConfig(wifiManager));
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(16, 8, 16, 8);
+
+        final EditText ipIn = addDialogField(box, "IPv4 Address", seed == null ? "" : seed.ip);
+        final EditText maskIn = addDialogField(box, "Netmask", seed == null ? StaticIpPolicy.DEFAULT_FALLBACK_NETMASK : seed.netmask);
+        final EditText gwIn = addDialogField(box, "Gateway", seed == null ? "" : seed.gateway);
+        final EditText dns1In = addDialogField(box, "DNS 1", seed == null ? "" : seed.dns1);
+        final EditText dns2In = addDialogField(box, "DNS 2", seed == null ? StaticIpPolicy.DEFAULT_FALLBACK_DNS2 : seed.dns2);
+
+        ScrollView scroll = new ScrollView(this);
+        scroll.addView(box);
+
+        new AlertDialog.Builder(this)
+                .setTitle("Static IPv4 Configuration")
+                .setView(scroll)
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton("Apply", new DialogInterface.OnClickListener() {
+                    @Override public void onClick(DialogInterface dialog, int which) {
+                        StaticIpPolicy.Config cfg = new StaticIpPolicy.Config(
+                                ipIn.getText().toString().trim(),
+                                maskIn.getText().toString().trim(),
+                                gwIn.getText().toString().trim(),
+                                dns1In.getText().toString().trim(),
+                                dns2In.getText().toString().trim());
+                        StaticIpPolicy.Result r = StaticIpPolicy.applyStatic(staticIpStore, cfg);
+                        Logger.info("StaticIp", (r.ok ? "OK: " : "FAIL: ") + r.message);
+                        if (staticIpSwitch != null) staticIpSwitch.update();
+                        if (!r.ok) {
+                            new AlertDialog.Builder(DeveloperActivity.this)
+                                    .setTitle("Static IP Error")
+                                    .setMessage(r.message)
+                                    .setPositiveButton("OK", null).show();
+                        }
+                    }
+                }).show();
+    }
+
+    private EditText addDialogField(LinearLayout parent, String label, String initial) {
+        TextView tv = new TextView(this);
+        tv.setText(label);
+        parent.addView(tv);
+        EditText et = new EditText(this);
+        et.setSingleLine(true);
+        et.setText(initial == null ? "" : initial);
+        parent.addView(et);
+        return et;
     }
 
     private boolean isKeepAwakePrefEnabled() {
