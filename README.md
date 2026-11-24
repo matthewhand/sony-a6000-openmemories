@@ -203,3 +203,17 @@ Sign with Android 2.3-compatible **v1 JAR signing** (`jarsigner -sigalg SHA1with
 - **Known Sony ILCE-6000 firmware boundaries (verified via `/system/framework/services.odex`, `ScalarALauncher.odex`, and `shared_prefs/nfc_shooting.xml`):**
   - On cold power-switch `OFF -> ON`, Sony's Diadem RTOS keeps Android suspended until the user opens **Menu → Application List** (or maps a native Diadem custom key to **Application List**). `ScalarALauncher`'s `ScalarACustomKeyRegister` on ILCE-6000 only exposes `custom_key_NFC_Shooting` (One-touch NFC app launch), not direct Diadem physical `C1`/`C2` app launching.
   - Once Android boots, `BootRecoveryReceiver` / `BootRecoveryService` auto-launches `LivePreviewActivity` (`:8088`), Wi-Fi, Static IP, `APO/NO`, ADB, Telnet, NTP, and Screensaver hands-free — and pressing `MENU` cleanly opens `MainActivity` Hub Settings without dropping back to Diadem.
+
+---
+
+## Roadmap
+
+- [ ] **Hands-Free Cold-Boot Auto-Launch via Active NFC (`One-touch (NFC)` + PN532 / ESPHome):**
+  - Because the ILCE-6000's built-in NFC chip acts as a **passive/target tag**, a plain passive NFC sticker/band cannot wake Diadem — an **active 13.56 MHz NFC reader** (a **PN532** I2C module supporting Sony FeliCa/NFC-F wired to any inexpensive spare ESP32/ESP8266 running ESPHome, keeping dedicated voice-assistant hardware free) is required.
+  - `ScalarALauncher.odex` already accepts standard `MAIN`/`LAUNCHER` apps (including **A6000 Hub**) in Sony's native **Menu → Wireless → One-touch (NFC)** picker (`nfc_shooting.xml` / `custom_key_NFC_Shooting`).
+  - **Next steps:** Verify phone-tap wake-to-stream from Diadem shooting mode with **One-touch (NFC) → A6000 Hub**, then prototype a Home Assistant-triggered 1–2s gated PN532 RF poll pulse when the camera stream goes unavailable after a power outage (plus an optional in-app helper invoking `DAConnectionManager.registerCustomKeyInfo` / `ScalarACustomKeyRegister`).
+- [ ] **Diadem `C1` / `C2` Direct 1-Button Launch from Cold Boot:**
+  - **Current workaround (in use today):** Manual power-cycle launch, or map **Sony Diadem Menu → Custom Key Settings → `C1` or `C2` = Application List**; a single press wakes Android and `BootRecoveryReceiver` immediately auto-launches **A6000 Hub** into `:8088` streaming without a second click.
+  - **Next steps:** Investigate whether `android.app.DAConnectionManager.registerCustomKeyInfo(pkg, cls, key)` or Diadem camera settings/backup keys expose any non-NFC custom-key slot for direct `C1`/`C2` app launch on ILCE-6000 or newer Sony API V5/V6+ bodies.
+- [ ] **Infrared (`SIRCS` / `RMT-DSLR2`) Remote Notes (Evaluated):**
+  - Verified against Sony RMT-DSLR2 docs and ILCE-6000 `ScalarInput.odex`: with **Setup → Remote Ctrl: ON**, existing HAOS IR blasters can trigger **Shutter**, **2s Shutter**, and **Movie Start/Stop** in Diadem shooting mode (and Playback/HDMI navigation), but Sony Diadem ignores IR menu arrows for launching apps and has no `ISV_KEY_IR_CUSTOM1/2` code — so IR cannot wake Android from Diadem (active NFC remains the wireless wake path).
