@@ -26,6 +26,13 @@ final class CustomButtonPolicyTests {
         expect(CustomButtonPolicy.labels().length == CustomButtonPolicy.Action.values().length,
                 "labels length matches enum");
         expect(CustomButtonPolicy.indexOf(CustomButtonPolicy.Action.CYCLE_STAGE) == 1, "indexOf cycle_stage");
+
+        String tipDefault = CustomButtonPolicy.formatLaunchTip(CustomButtonPolicy.Action.TOGGLE_SAVER_DIM);
+        expect(tipDefault.contains("Press MENU for Settings") && tipDefault.contains("C1: Pause Saver"),
+                "default launch tip shows MENU, OK, and C1 hint");
+        String tipDisabled = CustomButtonPolicy.formatLaunchTip(CustomButtonPolicy.Action.DISABLED);
+        expect(tipDisabled.contains("Press MENU for Settings") && !tipDisabled.contains("C1:"),
+                "disabled C1 omits C1 segment from launch tip");
     }
 
     private static void stageAndStyleCycling() {

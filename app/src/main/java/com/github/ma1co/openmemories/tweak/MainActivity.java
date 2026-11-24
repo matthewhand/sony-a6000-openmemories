@@ -132,6 +132,10 @@ public class MainActivity extends TabActivity {
         Logger.info("MainActivity", "application start");
         super.onResume();
         BootRecoveryPolicy.SHARED.onUiResumed();
+        SonyPowerBridge.notifyAppInfo(this, getComponentName());
+        if (DeveloperSettingsPolicy.read(new AndroidDeveloperSettingsStore(this)).wantKeepAwake) {
+            SonyPowerBridge.applyAutoPowerOffMode(this, AutoPowerOffPolicy.MODE_DISABLE);
+        }
         resumed = true;
         if (autoLaunchHandled) {
             // Returning from LivePreviewActivity via MENU/BACK stays cleanly in Developer settings.

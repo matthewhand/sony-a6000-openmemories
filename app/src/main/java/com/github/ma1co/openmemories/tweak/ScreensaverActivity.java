@@ -75,6 +75,10 @@ public final class ScreensaverActivity extends Activity {
     @Override protected void onResume() {
         super.onResume();
         BootRecoveryPolicy.SHARED.onUiResumed();
+        SonyPowerBridge.notifyAppInfo(this, getComponentName());
+        if (DeveloperSettingsPolicy.read(new AndroidDeveloperSettingsStore(this)).wantKeepAwake) {
+            SonyPowerBridge.applyAutoPowerOffMode(this, AutoPowerOffPolicy.MODE_DISABLE);
+        }
         SharedPreferences prefs = getSharedPreferences(DeveloperSettingsPolicy.PREFS_NAME, MODE_PRIVATE);
         delaySec = ScreensaverPolicy.clampDelaySec(prefs.getInt(ScreensaverPolicy.KEY_DELAY_SEC, ScreensaverPolicy.DEFAULT_DELAY_SEC));
         dimSec = ScreensaverPolicy.clampDimSec(prefs.getInt(ScreensaverPolicy.KEY_DIM_SEC, ScreensaverPolicy.DEFAULT_DIM_SEC));
