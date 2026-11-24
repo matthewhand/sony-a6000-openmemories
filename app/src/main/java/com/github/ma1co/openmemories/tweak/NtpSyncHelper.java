@@ -141,7 +141,7 @@ final class NtpSyncHelper {
         if (!enabled) return;
         if (!force && System.currentTimeMillis() >= SntpClientPolicy.MIN_VALID_EPOCH_MS) return;
         if (!force && !hasWifiIpv4(app)) return;
-        long nowElapsed = SystemClock.elapsedRealtime();
+        long nowElapsed = SystemClock.uptimeMillis();
         long prev = lastAttemptElapsedMs;
         if (!force && prev >= 0L && nowElapsed >= prev && (nowElapsed - prev) < MIN_AUTO_RETRY_INTERVAL_MS) {
             return;

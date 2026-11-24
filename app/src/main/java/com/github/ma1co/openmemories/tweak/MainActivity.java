@@ -29,7 +29,7 @@ public class MainActivity extends TabActivity {
             int delaySec = ScreensaverPolicy.clampDelaySec(
                     getSharedPreferences(DeveloperSettingsPolicy.PREFS_NAME, MODE_PRIVATE)
                             .getInt(ScreensaverPolicy.KEY_DELAY_SEC, ScreensaverPolicy.DEFAULT_DELAY_SEC));
-            if (idlePolicy.evaluate(SystemClock.elapsedRealtime(), delaySec, ScreensaverPolicy.DEFAULT_DIM_SEC)
+            if (idlePolicy.evaluate(SystemClock.uptimeMillis(), delaySec, ScreensaverPolicy.DEFAULT_DIM_SEC)
                     == ScreensaverPolicy.Stage.SCREENSAVER) {
                 boolean autoWebcam = new AndroidDeveloperSettingsStore(MainActivity.this)
                         .getBoolean(LivePreviewActivity.KEY_BOOT_WEBCAM, true);
@@ -44,7 +44,7 @@ public class MainActivity extends TabActivity {
     };
 
     private void resetIdleTimer() {
-        idlePolicy.onUserActivity(SystemClock.elapsedRealtime());
+        idlePolicy.onUserActivity(SystemClock.uptimeMillis());
         idleHandler.removeCallbacks(idleCheck);
         int delaySec = ScreensaverPolicy.clampDelaySec(
                 getSharedPreferences(DeveloperSettingsPolicy.PREFS_NAME, MODE_PRIVATE)
