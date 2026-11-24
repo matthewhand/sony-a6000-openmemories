@@ -31,4 +31,28 @@ final class SonyPowerBridge {
             Logger.error("SonyPowerBridge.apo", e);
         }
     }
+
+    /**
+     * Completes an interrupted Sony DAConnectionManagerService state=4 (ScalarABlackLauncher)
+     * exit handshake via android.app.DAConnectionManager.finishComp() and best-effort
+     * ActivityManagerNative.resumeAppSwitches().
+     */
+    static void completeAndroidExitIfStuck(Context context) {
+        if (context == null) return;
+        try {
+            Class<?> amn = Class.forName("android.app.ActivityManagerNative");
+            Object am = amn.getMethod("getDefault").invoke(null);
+            if (am != null) {
+                am.getClass().getMethod("resumeAppSwitches").invoke(am);
+            }
+        } catch (Throwable ignored) {}
+        try {
+            Class<?> dacmClass = Class.forName("android.app.DAConnectionManager");
+            Object dacm = dacmClass.getConstructor(Context.class).newInstance(context);
+            dacmClass.getMethod("finishComp").invoke(dacm);
+            Logger.info("SonyPowerBridge", "Invoked DAConnectionManager.finishComp()");
+        } catch (Throwable t) {
+            Logger.error("SonyPowerBridge.finishComp", t);
+        }
+    }
 }

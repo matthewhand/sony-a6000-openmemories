@@ -14,6 +14,9 @@ final class CustomButtonPolicyTests {
         expect(CustomButtonPolicy.isC1ScanCode(588), "accepts legacy ISV_KEY_CUSTOM (588)");
         expect(!CustomButtonPolicy.isC1ScanCode(514), "rejects MENU (514)");
         expect(!CustomButtonPolicy.isC1ScanCode(0), "rejects 0");
+        expect(CustomButtonPolicy.isC2ScanCode(623), "accepts ISV_KEY_CUSTOM2 (623)");
+        expect(CustomButtonPolicy.isC2ScanCode(595), "accepts A6000 C2/Delete/? (595)");
+        expect(!CustomButtonPolicy.isC2ScanCode(514), "rejects MENU (514) for C2");
 
         expect(CustomButtonPolicy.parseAction(null) == CustomButtonPolicy.Action.TOGGLE_SAVER_DIM,
                 "default C1 action is toggle screensaver & dim");
@@ -28,10 +31,12 @@ final class CustomButtonPolicyTests {
         expect(CustomButtonPolicy.indexOf(CustomButtonPolicy.Action.CYCLE_STAGE) == 1, "indexOf cycle_stage");
 
         String tipDefault = CustomButtonPolicy.formatLaunchTip(CustomButtonPolicy.Action.TOGGLE_SAVER_DIM);
-        expect(tipDefault.contains("Press MENU for Settings") && tipDefault.contains("C1: Pause Saver"),
-                "default launch tip shows MENU, OK, and C1 hint");
+        expect(tipDefault.contains("MENU: Settings") && tipDefault.contains("C2(?): Quick Menu")
+                && tipDefault.contains("C1: Pause Saver"),
+                "default launch tip shows MENU, C2, OK, and C1 hint");
         String tipDisabled = CustomButtonPolicy.formatLaunchTip(CustomButtonPolicy.Action.DISABLED);
-        expect(tipDisabled.contains("Press MENU for Settings") && !tipDisabled.contains("C1:"),
+        expect(tipDisabled.contains("MENU: Settings") && tipDisabled.contains("C2(?): Quick Menu")
+                && !tipDisabled.contains("C1:"),
                 "disabled C1 omits C1 segment from launch tip");
     }
 
