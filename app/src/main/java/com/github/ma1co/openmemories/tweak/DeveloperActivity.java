@@ -219,9 +219,25 @@ public class DeveloperActivity extends ItemActivity {
             }
             @Override public String getSummary() {
                 return isEnabled()
-                        ? "Async luma diff + POST /screen/wake reveal live preview"
+                        ? "Shows grabbed motion still (~4.5s) then live preview"
                         : "Manual key/touch or HTTP wake only";
             }
+        });
+
+        addSwitch("Save motion stills to SD", new SwitchItem.Adapter() {
+            @Override public boolean isAvailable() { return true; }
+            @Override public boolean isEnabled() { return MotionGalleryStore.isSaveEnabled(DeveloperActivity.this); }
+            @Override public void setEnabled(boolean enabled) {
+                MotionGalleryStore.setSaveEnabled(DeveloperActivity.this, enabled);
+            }
+            @Override public String getSummary() {
+                MotionStoragePolicy.StorageStats st = MotionGalleryStore.inspectStats(DeveloperActivity.this);
+                return (isEnabled() ? "ON · " : "OFF · ") + MotionStoragePolicy.formatSummary(st);
+            }
+        });
+
+        addButton("Motion storage lifecycle...", new ButtonItem.Adapter() {
+            @Override public void click() { showMotionStorageDialog(); }
         });
 
         addSwitch("Turn off LCD backlight in Dim", new SwitchItem.Adapter() {
@@ -446,6 +462,61 @@ public class DeveloperActivity extends ItemActivity {
                         }
                     }
                 }).show();
+    }
+
+    private void showMotionStorageDialog() {
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(16, 8, 16, 8);
+
+        MotionStoragePolicy.StorageStats st = MotionGalleryStore.inspectStats(this);
+        TextView info = new TextView(this);
+        info.setText(MotionStoragePolicy.formatSummary(st) + "\nFolder: " + MotionStoragePolicy.DIR_PATH);
+        box.addView(info);
+
+        final EditText maxMbIn = addNumericField(box, "Max folder size (MB, 10-4096)",
+                String.valueOf(MotionGalleryStore.getMaxMb(this)));
+        final EditText retHrsIn = addNumericField(box, "Retention age (hours, 1-2160)",
+                String.valueOf(MotionGalleryStore.getRetentionHours(this)));
+
+        ScrollView scroll = new ScrollView(this);
+        scroll.addView(box);
+
+        new AlertDialog.Builder(this)
+                .setTitle("Motion Storage Lifecycle")
+                .setView(scroll)
+                .setNegativeButton("Cancel", null)
+                .setNeutralButton("Clear Stills", new DialogInterface.OnClickListener() {
+                    @Override public void onClick(DialogInterface dialog, int which) {
+                        MotionGalleryStore.clearAllStills();
+                        update();
+                    }
+                })
+                .setPositiveButton("Save", new DialogInterface.OnClickListener() {
+                    @Override public void onClick(DialogInterface dialog, int which) {
+                        try {
+                            MotionGalleryStore.setMaxMb(DeveloperActivity.this,
+                                    Integer.parseInt(maxMbIn.getText().toString().trim()));
+                        } catch (NumberFormatException ignored) {}
+                        try {
+                            MotionGalleryStore.setRetentionHours(DeveloperActivity.this,
+                                    Integer.parseInt(retHrsIn.getText().toString().trim()));
+                        } catch (NumberFormatException ignored) {}
+                        update();
+                    }
+                }).show();
+    }
+
+    private EditText addNumericField(LinearLayout parent, String label, String initial) {
+        TextView tv = new TextView(this);
+        tv.setText(label);
+        parent.addView(tv);
+        EditText et = new EditText(this);
+        et.setSingleLine(true);
+        et.setInputType(InputType.TYPE_CLASS_NUMBER);
+        et.setText(initial == null ? "" : initial);
+        parent.addView(et);
+        return et;
     }
 
     private EditText addDialogField(LinearLayout parent, String label, String initial) {
