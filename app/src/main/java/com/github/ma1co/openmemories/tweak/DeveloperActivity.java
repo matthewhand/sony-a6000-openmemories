@@ -115,6 +115,7 @@ public class DeveloperActivity extends ItemActivity {
                     StaticIpPolicy.Result r = StaticIpPolicy.applyStatic(staticIpStore, cfg);
                     Logger.info("StaticIp", (r.ok ? "OK: " : "FAIL: ") + r.message);
                     if (!r.ok) throw new IllegalStateException(r.message);
+                    if (isWifiEnabled()) bounceWifiToApplyStaticIp();
                 } else {
                     StaticIpPolicy.Result r = StaticIpPolicy.restoreDhcp(staticIpStore);
                     Logger.info("StaticIp", (r.ok ? "OK: " : "FAIL: ") + r.message);
@@ -198,16 +199,28 @@ public class DeveloperActivity extends ItemActivity {
             }
         });
 
-        addSwitch("Screensaver (60s -> 5m -> Dim)", new SwitchItem.Adapter() {
+        addButton("Screensaver timing (sec, 0=off)...", new ButtonItem.Adapter() {
+            @Override public void click() { showScreensaverTimingDialog(); }
+        });
+
+        addButton("Screensaver style...", new ButtonItem.Adapter() {
+            @Override public void click() { showScreensaverStyleDialog(); }
+        });
+
+        addSwitch("Screensaver debug HUD", new SwitchItem.Adapter() {
             @Override public boolean isAvailable() { return true; }
-            @Override public boolean isEnabled() { return devStore.getBoolean(MainActivity.KEY_SAVER_ENABLED, true); }
+            @Override public boolean isEnabled() { return devStore.getBoolean(ScreensaverPolicy.KEY_HUD_ENABLED, true); }
             @Override public void setEnabled(boolean enabled) {
-                devStore.putBoolean(MainActivity.KEY_SAVER_ENABLED, enabled);
+                devStore.putBoolean(ScreensaverPolicy.KEY_HUD_ENABLED, enabled);
             }
             @Override public String getSummary() {
-                return isEnabled()
-                        ? "Starfield + Oscilloscope + HUD after 60s, full-dim at 5m"
-                        : "Screensaver disabled";
+                android.content.SharedPreferences p = getSharedPreferences(DeveloperSettingsPolicy.PREFS_NAME, MODE_PRIVATE);
+                int d = p.getInt(ScreensaverPolicy.KEY_DELAY_SEC, ScreensaverPolicy.DEFAULT_DELAY_SEC);
+                int dim = p.getInt(ScreensaverPolicy.KEY_DIM_SEC, ScreensaverPolicy.DEFAULT_DIM_SEC);
+                ScreensaverPolicy.Style st = ScreensaverPolicy.parseStyle(
+                        p.getString(ScreensaverPolicy.KEY_STYLE, ScreensaverPolicy.Style.RANDOM.id));
+                return (isEnabled() ? "HUD ON" : "HUD OFF") + " · " + st.label + " · "
+                        + ScreensaverPolicy.formatTimingSummary(d, dim);
             }
         });
 
@@ -452,6 +465,9 @@ public class DeveloperActivity extends ItemActivity {
                         if (r.ok) {
                             DeveloperSettingsPolicy.recordBooleanIfPersisting(
                                     devStore, DeveloperSettingsPolicy.KEY_WANT_STATIC_IP, true);
+                            if (isWifiEnabled()) {
+                                bounceWifiToApplyStaticIp();
+                            }
                         }
                         update();
                         if (!r.ok) {
@@ -462,6 +478,61 @@ public class DeveloperActivity extends ItemActivity {
                         }
                     }
                 }).show();
+    }
+
+    private void showScreensaverTimingDialog() {
+        final android.content.SharedPreferences prefs = getSharedPreferences(DeveloperSettingsPolicy.PREFS_NAME, MODE_PRIVATE);
+        final int curDelay = prefs.getInt(ScreensaverPolicy.KEY_DELAY_SEC, ScreensaverPolicy.DEFAULT_DELAY_SEC);
+        final int curDim = prefs.getInt(ScreensaverPolicy.KEY_DIM_SEC, ScreensaverPolicy.DEFAULT_DIM_SEC);
+
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(16, 8, 16, 8);
+        final EditText delayIn = addNumericField(box, "Seconds until screensaver (0 = off)", String.valueOf(curDelay));
+        final EditText dimIn = addNumericField(box, "Seconds in screensaver until LCD dim (0 = never)", String.valueOf(curDim));
+
+        ScrollView scroll = new ScrollView(this);
+        scroll.addView(box);
+
+        new AlertDialog.Builder(this)
+                .setTitle("Screensaver Timing")
+                .setView(scroll)
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton("Save", new DialogInterface.OnClickListener() {
+                    @Override public void onClick(DialogInterface dialog, int which) {
+                        int d = curDelay;
+                        int dm = curDim;
+                        try { d = ScreensaverPolicy.clampDelaySec(Integer.parseInt(delayIn.getText().toString().trim())); }
+                        catch (NumberFormatException ignored) {}
+                        try { dm = ScreensaverPolicy.clampDimSec(Integer.parseInt(dimIn.getText().toString().trim())); }
+                        catch (NumberFormatException ignored) {}
+                        prefs.edit()
+                                .putInt(ScreensaverPolicy.KEY_DELAY_SEC, d)
+                                .putInt(ScreensaverPolicy.KEY_DIM_SEC, dm)
+                                .commit();
+                        update();
+                    }
+                }).show();
+    }
+
+    private void showScreensaverStyleDialog() {
+        final android.content.SharedPreferences prefs = getSharedPreferences(DeveloperSettingsPolicy.PREFS_NAME, MODE_PRIVATE);
+        ScreensaverPolicy.Style cur = ScreensaverPolicy.parseStyle(
+                prefs.getString(ScreensaverPolicy.KEY_STYLE, ScreensaverPolicy.Style.RANDOM.id));
+        new AlertDialog.Builder(this)
+                .setTitle("Screensaver Style")
+                .setSingleChoiceItems(ScreensaverPolicy.pickerLabels(), ScreensaverPolicy.pickerIndex(cur),
+                        new DialogInterface.OnClickListener() {
+                            @Override public void onClick(DialogInterface dialog, int which) {
+                                ScreensaverPolicy.Style picked = ScreensaverPolicy.styleForPickerIndex(which);
+                                if (picked == null) return; // Divider tapped; keep dialog open
+                                prefs.edit().putString(ScreensaverPolicy.KEY_STYLE, picked.id).commit();
+                                dialog.dismiss();
+                                update();
+                            }
+                        })
+                .setNegativeButton("Cancel", null)
+                .show();
     }
 
     private void showMotionStorageDialog() {
@@ -583,6 +654,13 @@ public class DeveloperActivity extends ItemActivity {
     protected void onPause() {
         super.onPause();
         unregisterReceiver(receiver);
+    }
+
+    private void bounceWifiToApplyStaticIp() {
+        setWifiEnabled(false);
+        new android.os.Handler().postDelayed(new Runnable() {
+            @Override public void run() { setWifiEnabled(true); }
+        }, 1800L);
     }
 
     public boolean isWifiEnabled() {
