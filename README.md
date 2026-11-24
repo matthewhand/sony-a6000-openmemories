@@ -41,6 +41,7 @@ Every feature was built onto pristine upstream `d1acfe8` (`Exit to launcher #246
 | **#55** | #54 | Stream-view readability & `C2` Full Settings visibility (`v1.6.8`): enlarged live stream status bar (`18sp` bold 2-line overlay) and launch tip banner (`17sp` bold 2-line); promoted **Full Settings Menu (`MENU`)** into the top 3 visible `C2` Quick Menu cells + header hint (`MENU: Full`) so users immediately see the full tabbed Settings menu | UX polish |
 | **#57** | #56 | Fix 11-second post-boot black screen on NTP sync (`v1.6.9`): switched internal monotonic timers from `SystemClock.elapsedRealtime()` to `SystemClock.uptimeMillis()` (`CLOCK_MONOTONIC`) across `LivePreviewActivity`, `MainActivity`, `ScreensaverActivity`, and `NtpSyncHelper` so Gingerbread's `/dev/alarm` RTC jump on `busybox date -u -s` never trips immediate `FULL_DIM` (`DEVICE_ID_NONE`) | **High** (Android 2.3.7 kernel fix) |
 | **#59** | #58 | Physical shutter capture while streaming (`v1.7.0`): wired Sony `S1` half-press (`516`/`517`) to `normalCamera.autoFocus()` with live `[ AF... ]` / `[ AF LOCKED ]` badge, and `S2` full-press (`518`) to native 24 MP `CameraEx.burstableTakePicture()` to SD card with brief white shutter-flash + result banner + automatic `CameraSequence` stream resume (`ShutterCapturePolicy`, `ShutterCapturePolicyTests`) | Fork showcase |
+| **#61** | #60 | Full on-launch button-bindings help card & Settings toggle (`v1.7.1`): displays a crisp `17sp` cyan-bordered 6.5s card listing `SHUTTER`, `C2 (?)`, `C1`, `OK`, and `MENU` on Webcam launch (auto-dismissed by any key/tap), with a **Show on-launch button help** toggle in Developer Settings (`show_launch_key_help`, default ON) | UX polish |
 
 ---
 
@@ -180,8 +181,8 @@ Requirements: JDK 8 (`javac`/`java`), Android `aapt`, `dx`, `zipalign`, Python 3
 ./scripts/build-apk.sh \
   --package-id dev.privatea6000.hub \
   --app-label "A6000 Hub" \
-  --version-code 18 \
-  --version-name 1.7.0 \
+  --version-code 19 \
+  --version-name 1.7.1 \
   --out /dev/shm/a6000-hub-unsigned.apk
 ```
 Sign with Android 2.3-compatible **v1 JAR signing** (`jarsigner -sigalg SHA1withRSA -digestalg SHA1`), run `zipalign -f 4`, and install via PMCA or `adb install`.
@@ -192,7 +193,7 @@ Sign with Android 2.3-compatible **v1 JAR signing** (`jarsigner -sigalg SHA1with
 
 ## Verification Status
 
-- **Offline verified (17 test suites, 441 assertions):** `AndroidIpWebcamProtocolTests`, `AutoPowerOffPolicyTests`, `BootRecoveryPolicyTests`, `CameraRetryPolicyTests`, `ConditionTests`, `CustomButtonPolicyTests`, `DeveloperSettingsPolicyTests`, `DisplayBacklightPolicyTests`, `MotionDetectorPolicyTests`, `MotionStoragePolicyTests`, `PreviewFrameBusTests`, `PreviewHttpServerTests` (real loopback sockets incl. `HEAD`, MJPEG, Basic Auth), `QuickPopupMenuPolicyTests`, `ScreensaverPolicyTests`, `ShutterCapturePolicyTests`, `SntpClientPolicyTests` (real loopback UDP), and `StaticIpPolicyTests`.
+- **Offline verified (17 test suites, 442 assertions):** `AndroidIpWebcamProtocolTests`, `AutoPowerOffPolicyTests`, `BootRecoveryPolicyTests`, `CameraRetryPolicyTests`, `ConditionTests`, `CustomButtonPolicyTests`, `DeveloperSettingsPolicyTests`, `DisplayBacklightPolicyTests`, `MotionDetectorPolicyTests`, `MotionStoragePolicyTests`, `PreviewFrameBusTests`, `PreviewHttpServerTests` (real loopback sockets incl. `HEAD`, MJPEG, Basic Auth), `QuickPopupMenuPolicyTests`, `ScreensaverPolicyTests`, `ShutterCapturePolicyTests`, `SntpClientPolicyTests` (real loopback UDP), and `StaticIpPolicyTests`.
 - **Hardware verified on Sony ILCE-6000 (Android 2.3.7, API V4):**
   - Static IPv4 via `Settings.System` + `SharedPreferences` mirror (`WifiStateTracker: Static IP configuration succeeded`, hands-free ADB broadcast IP switching).
   - Auto Power Off inhibition (`DAConnectionManagerService-JNI: APO/NO -> call MSS_fakey_stop`).

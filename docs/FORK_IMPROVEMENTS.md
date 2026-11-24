@@ -83,9 +83,9 @@ All business logic is factored into **pure-Java, dependency-free `*Policy` class
 
 ---
 
-## 7. Physical Camera Controls: `C1`, Fullscreen `C2` Quick Menu & On-Launch Tip (PRs #40, #47, #49, #51, #53, #55)
+## 7. Physical Camera Controls: `C1`, Fullscreen `C2` Quick Menu & On-Launch Button Help (PRs #40, #47, #49, #51, #53, #55, #59, #61)
 
-- **Large-Font Stream Overlay & Auto-Boot `MENU` Navigation:** Displays a large `18sp` bold 2-line live status overlay (`IP:8088 fps Cli` + `state | motion | SAVER | C2:Menu`) and a `17sp` bold 5-second on-launch tip (`MENU: Full Settings | C2(?): Quick Menu` / `OK: Screensaver | C1: Pause Saver`). Pressing `MENU` (or choosing **Full Settings Menu** in `C2`) reliably opens `MainActivity` on the Developer tab even when `LivePreviewActivity` was auto-launched directly at boot (`isTaskRoot()` + `EXTRA_SKIP_AUTO_WEBCAM`).
+- **Large-Font Stream Overlay, On-Launch Key Help Card & Auto-Boot `MENU` Navigation:** Displays a large `18sp` bold 2-line live status overlay (`IP:8088 fps Cli` + `state | motion | SAVER | C2:Menu`) and a `17sp` bold cyan-bordered 6.5-second on-launch **Button Shortcuts** card listing `SHUTTER`, `C2 (?)`, `C1`, `OK`, and `MENU` (dismissed immediately on any key/tap, and disableable via **Show on-launch button help** in Developer Settings). Pressing `MENU` (or choosing **Full Settings Menu** in `C2`) reliably opens `MainActivity` on the Developer tab even when `LivePreviewActivity` was auto-launched directly at boot (`isTaskRoot()` + `EXTRA_SKIP_AUTO_WEBCAM`).
 - **Configurable `C1` Button Dropdown (`CustomButtonPolicy`):** Binds Sony `C1` (`622` / `588`) to 9 selectable actions configurable in both **Developer Settings** and directly inside the **`C2` Quick Menu**:
   1. **Toggle Screensaver Hold (Default)**
   2. **Cycle Output: LCD / EVF / OFF** (cycles Sony `DisplayManager` `DEVICE_ID_PANEL` → `DEVICE_ID_FINDER` viewfinder → `DEVICE_ID_NONE` off!)

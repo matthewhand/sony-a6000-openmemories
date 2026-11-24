@@ -6,11 +6,13 @@ package com.github.ma1co.openmemories.tweak;
  */
 final class CustomButtonPolicy {
     static final String KEY_C1_ACTION = "c1_button_action";
+    static final String KEY_SHOW_LAUNCH_HELP = "show_launch_key_help";
+    static final boolean DEFAULT_SHOW_LAUNCH_HELP = true;
     static final int SCAN_CUSTOM1 = 622;
     static final int SCAN_CUSTOM_LEGACY = 588;
     static final int SCAN_CUSTOM2 = 623;
     static final int SCAN_DELETE_C2 = 595;
-    static final long LAUNCH_TIP_DURATION_MS = 5000L;
+    static final long LAUNCH_TIP_DURATION_MS = 6500L;
 
     enum Action {
         TOGGLE_SAVER_DIM("toggle_saver_dim", "Toggle Screensaver Hold (Default)", "Pause Saver"),
@@ -38,11 +40,16 @@ final class CustomButtonPolicy {
 
     static String formatLaunchTip(Action action) {
         Action a = action == null ? Action.TOGGLE_SAVER_DIM : action;
-        String line1 = "MENU: Full Settings  |  C2(?): Quick Menu";
-        if (a == Action.DISABLED || a.shortHint.length() == 0) {
-            return line1 + "\nOK: Screensaver";
+        StringBuilder sb = new StringBuilder(192);
+        sb.append("BUTTON SHORTCUTS  (tap/key hides)\n");
+        sb.append("SHUTTER : Half=AF | Full=24MP Photo\n");
+        sb.append("C2 (?)  : Quick Menu (LCD/EVF/Srv)\n");
+        if (a != Action.DISABLED && a.shortHint.length() > 0) {
+            sb.append("C1      : ").append(a.shortHint).append('\n');
         }
-        return line1 + "\nOK: Screensaver  |  C1: " + a.shortHint;
+        sb.append("OK      : Screensaver Now\n");
+        sb.append("MENU    : Full Hub Settings");
+        return sb.toString();
     }
 
     static boolean isC1ScanCode(int scanCode) {

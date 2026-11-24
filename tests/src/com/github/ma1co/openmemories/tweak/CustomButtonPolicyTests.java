@@ -35,14 +35,16 @@ final class CustomButtonPolicyTests {
         expect(CustomButtonPolicy.indexOf(CustomButtonPolicy.Action.CYCLE_DISPLAY_OUTPUT) == 1,
                 "indexOf cycle_display_output");
 
+        expect(CustomButtonPolicy.DEFAULT_SHOW_LAUNCH_HELP, "launch help defaults to enabled");
         String tipDefault = CustomButtonPolicy.formatLaunchTip(CustomButtonPolicy.Action.TOGGLE_SAVER_DIM);
-        expect(tipDefault.contains("MENU: Full Settings") && tipDefault.contains("C2(?): Quick Menu")
-                && tipDefault.contains("C1: Pause Saver"),
-                "default launch tip shows MENU, C2, OK, and C1 hint");
+        expect(tipDefault.contains("SHUTTER") && tipDefault.contains("C2 (?)")
+                && tipDefault.contains("C1") && tipDefault.contains("Pause Saver")
+                && tipDefault.contains("OK") && tipDefault.contains("MENU"),
+                "default launch help lists SHUTTER, C2, C1, OK, and MENU");
         String tipDisabled = CustomButtonPolicy.formatLaunchTip(CustomButtonPolicy.Action.DISABLED);
-        expect(tipDisabled.contains("MENU: Full Settings") && tipDisabled.contains("C2(?): Quick Menu")
-                && !tipDisabled.contains("C1:"),
-                "disabled C1 omits C1 segment from launch tip");
+        expect(tipDisabled.contains("SHUTTER") && tipDisabled.contains("C2 (?)")
+                && tipDisabled.contains("MENU") && !tipDisabled.contains("C1      :"),
+                "disabled C1 omits C1 row from launch help");
     }
 
     private static void stageAndStyleCycling() {

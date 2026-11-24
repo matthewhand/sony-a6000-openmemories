@@ -101,6 +101,7 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
     private TextView motionStillBanner;
     private TextView statusStrip;
     private TextView afBadge;
+    private TextView launchHelpOverlay;
     private View shutterFlashOverlay;
     private ScreensaverView saverOverlay;
     private Dialog c2QuickDialog;
@@ -156,6 +157,7 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
     private boolean surfaceParkedForSaver;
     private CustomButtonPolicy.Action c1Action = CustomButtonPolicy.Action.TOGGLE_SAVER_DIM;
     private long toastBannerUntilMs;
+    private long launchHelpUntilMs;
     private int consumedWakeScan = -1;
 
     private final PreviewHttpServer.ControlHooks httpHooks = new PreviewHttpServer.ControlHooks() {
@@ -216,6 +218,9 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
             if (toastBannerUntilMs > 0L && now >= toastBannerUntilMs && motionStillUntilMs <= 0L) {
                 toastBannerUntilMs = 0L;
                 motionStillBanner.setVisibility(View.GONE);
+            }
+            if (launchHelpUntilMs > 0L && now >= launchHelpUntilMs) {
+                hideLaunchHelpOverlay();
             }
             applyStageVisuals(stage, now);
             long nextDelay = (stage == ScreensaverPolicy.Stage.SCREENSAVER) ? UI_TICK_MS : 500L;
@@ -325,6 +330,23 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
         root.addView(shutterFlashOverlay, new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
 
+        launchHelpOverlay = new TextView(this);
+        launchHelpOverlay.setTypeface(Typeface.MONOSPACE, Typeface.BOLD);
+        launchHelpOverlay.setTextSize(17f);
+        launchHelpOverlay.setTextColor(Color.rgb(241, 245, 249));
+        launchHelpOverlay.setPadding(18, 12, 18, 12);
+        GradientDrawable helpBg = new GradientDrawable();
+        helpBg.setColor(Color.argb(224, 11, 17, 28));
+        helpBg.setCornerRadius(8f);
+        helpBg.setStroke(2, Color.rgb(56, 189, 248));
+        launchHelpOverlay.setBackgroundDrawable(helpBg);
+        launchHelpOverlay.setVisibility(View.GONE);
+        FrameLayout.LayoutParams helpLp = new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT);
+        helpLp.gravity = Gravity.CENTER_HORIZONTAL | Gravity.BOTTOM;
+        helpLp.bottomMargin = 18;
+        root.addView(launchHelpOverlay, helpLp);
+
         saverOverlay = new ScreensaverView(this);
         saverOverlay.setVisibility(View.GONE);
         root.addView(saverOverlay, new FrameLayout.LayoutParams(
@@ -378,9 +400,13 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
         setSurfaceViewParked(false);
         saverOverlay.setVisibility(View.GONE);
         statusStrip.setVisibility(View.VISIBLE);
-        if (toastBannerUntilMs <= 0L) {
-            showBriefBanner(CustomButtonPolicy.formatLaunchTip(c1Action),
+        boolean showLaunchHelp = devStore.getBoolean(
+                CustomButtonPolicy.KEY_SHOW_LAUNCH_HELP, CustomButtonPolicy.DEFAULT_SHOW_LAUNCH_HELP);
+        if (showLaunchHelp) {
+            showLaunchHelpOverlay(CustomButtonPolicy.formatLaunchTip(c1Action),
                     CustomButtonPolicy.LAUNCH_TIP_DURATION_MS);
+        } else {
+            hideLaunchHelpOverlay();
         }
 
         httpServerPausedByUser = false;
@@ -415,6 +441,7 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
         uiHandler.removeCallbacks(shutterTimeoutTask);
         uiHandler.removeCallbacks(resumeSequenceAfterCaptureTask);
         cancelActiveShutterIfNeeded();
+        hideLaunchHelpOverlay();
         if (afBadge != null) afBadge.setVisibility(View.GONE);
         if (shutterFlashOverlay != null) shutterFlashOverlay.setVisibility(View.GONE);
         dismissC2QuickPopup();
@@ -497,11 +524,26 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
         }
     }
 
+    private void showLaunchHelpOverlay(String text, long durationMs) {
+        if (launchHelpOverlay == null) return;
+        launchHelpOverlay.setText(text);
+        launchHelpOverlay.setVisibility(View.VISIBLE);
+        launchHelpUntilMs = SystemClock.uptimeMillis() + durationMs;
+    }
+
+    private void hideLaunchHelpOverlay() {
+        launchHelpUntilMs = 0L;
+        if (launchHelpOverlay != null) {
+            launchHelpOverlay.setVisibility(View.GONE);
+        }
+    }
+
     private void showBriefBanner(String msg) {
         showBriefBanner(msg, 2600L);
     }
 
     private void showBriefBanner(String msg, long durationMs) {
+        hideLaunchHelpOverlay();
         if (motionStillBanner == null) return;
         motionStillBanner.setText(msg);
         motionStillBanner.setVisibility(View.VISIBLE);
@@ -1077,6 +1119,7 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
 
         if (CustomButtonPolicy.isC2ScanCode(scan)) {
             if (action == KeyEvent.ACTION_DOWN && event.getRepeatCount() == 0) {
+                hideLaunchHelpOverlay();
                 showOrDismissC2QuickPopup();
             }
             return true;
@@ -1084,6 +1127,7 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
 
         if (CustomButtonPolicy.isC1ScanCode(scan) && c1Action != CustomButtonPolicy.Action.DISABLED) {
             if (action == KeyEvent.ACTION_DOWN && event.getRepeatCount() == 0) {
+                hideLaunchHelpOverlay();
                 handleC1CustomButton();
             }
             return true;
@@ -1102,6 +1146,7 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
         }
         if (ShutterCapturePolicy.isS1ScanCode(scan)) {
             if (action == KeyEvent.ACTION_DOWN && event.getRepeatCount() == 0) {
+                hideLaunchHelpOverlay();
                 screenPolicy.onUserActivity(SystemClock.uptimeMillis());
                 handleShutterS1Down();
             } else if (action == KeyEvent.ACTION_UP) {
@@ -1111,12 +1156,14 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
         }
         if (ShutterCapturePolicy.isS2ScanCode(scan)) {
             if (action == KeyEvent.ACTION_DOWN && event.getRepeatCount() == 0) {
+                hideLaunchHelpOverlay();
                 screenPolicy.onUserActivity(SystemClock.uptimeMillis());
                 handleShutterS2Down();
             }
             return true;
         }
         if (action == KeyEvent.ACTION_DOWN && event.getRepeatCount() == 0) {
+            hideLaunchHelpOverlay();
             screenPolicy.onUserActivity(SystemClock.uptimeMillis());
             if (code == KeyEvent.KEYCODE_BACK || code == KeyEvent.KEYCODE_MENU
                     || scan == 514) {
@@ -1294,6 +1341,10 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
 
     @Override public boolean onTouchEvent(MotionEvent event) {
         if (event != null && event.getAction() == MotionEvent.ACTION_DOWN) {
+            if (launchHelpOverlay != null && launchHelpOverlay.getVisibility() == View.VISIBLE) {
+                hideLaunchHelpOverlay();
+                return true;
+            }
             if (screenPolicy.stage() != ScreensaverPolicy.Stage.ACTIVE) {
                 wakeToLive("touch");
                 return true;
@@ -1386,6 +1437,7 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
     }
 
     private void switchToScreensaver() {
+        hideLaunchHelpOverlay();
         dismissC2QuickPopup();
         saverPausedByC1 = false;
         displayBacklight.restore(this);
@@ -1403,6 +1455,7 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
     }
 
     private void switchToFullDim() {
+        hideLaunchHelpOverlay();
         dismissC2QuickPopup();
         saverPausedByC1 = false;
         toastBannerUntilMs = 0L;
