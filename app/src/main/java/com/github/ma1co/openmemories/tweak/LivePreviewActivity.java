@@ -214,6 +214,7 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
         statusStrip.setVisibility(View.VISIBLE);
 
         startHttpServer();
+        bootstrapPersistedTogglesIfEmpty();
         NtpSyncHelper.syncAsyncIfEnabled(this, false);
         openCameraOnMainThread();
         surfaceView.getHolder().addCallback(this);
@@ -348,6 +349,30 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
             if (saverOverlay.getVisibility() != View.VISIBLE) saverOverlay.setVisibility(View.VISIBLE);
             saverOverlay.step(0.0f, true);
         }
+    }
+
+    private void bootstrapPersistedTogglesIfEmpty() {
+        try {
+            WifiManager wm = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
+            boolean wifiOn = wm != null && (wm.getWifiState() == WifiManager.WIFI_STATE_ENABLED
+                    || wm.getWifiState() == WifiManager.WIFI_STATE_ENABLING);
+            String ssid = "";
+            boolean connected = false;
+            if (wm != null && wm.getWifiState() == WifiManager.WIFI_STATE_ENABLED) {
+                WifiInfo info = wm.getConnectionInfo();
+                if (info != null && info.getIpAddress() != 0) {
+                    connected = true;
+                    ssid = DeveloperSettingsPolicy.normalizeSsid(info.getSSID());
+                }
+            }
+            boolean staticOn = StaticIpPolicy.isStaticEnabled(new AndroidStaticIpStore(this));
+            String adbBin = getApplicationInfo().nativeLibraryDir + "/libadbd.so";
+            boolean adbRunning = Procfs.findProcess(new String[] { adbBin }) != -1;
+            boolean telnetRunning = Procfs.findProcess(new String[] { "busybox", "telnetd", "-l", "sh" }) != -1;
+            DeveloperSettingsPolicy.bootstrapSnapshotIfEmpty(
+                    devStore,
+                    new DeveloperSettingsPolicy.RuntimeState(wifiOn, connected, ssid, staticOn, adbRunning, telnetRunning));
+        } catch (Throwable ignored) {}
     }
 
     private void startHttpServer() {

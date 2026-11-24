@@ -11,8 +11,11 @@ import android.net.NetworkInfo;
 import android.net.wifi.WifiInfo;
 import android.net.wifi.WifiManager;
 import android.os.Bundle;
+import android.text.InputType;
 import android.text.TextUtils;
 import android.text.format.Formatter;
+import android.text.method.KeyListener;
+import android.text.method.NumberKeyListener;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
@@ -21,6 +24,15 @@ import android.widget.TextView;
 import java.util.concurrent.TimeoutException;
 
 public class DeveloperActivity extends ItemActivity {
+    /** Numeric+dot keypad for IPv4 fields without Gingerbread's single-dot decimal restriction. */
+    private static final KeyListener IPV4_KEY_LISTENER = new NumberKeyListener() {
+        private final char[] ACCEPTED = new char[] { '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '.' };
+        @Override protected char[] getAcceptedChars() { return ACCEPTED; }
+        @Override public int getInputType() {
+            return InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_FLAG_DECIMAL;
+        }
+    };
+
     private ConnectivityManager connectivityManager;
     private WifiManager wifiManager;
     private BroadcastReceiver receiver;
@@ -429,6 +441,8 @@ public class DeveloperActivity extends ItemActivity {
         parent.addView(tv);
         EditText et = new EditText(this);
         et.setSingleLine(true);
+        et.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_FLAG_DECIMAL);
+        et.setKeyListener(IPV4_KEY_LISTENER);
         et.setText(initial == null ? "" : initial);
         parent.addView(et);
         return et;
@@ -451,10 +465,21 @@ public class DeveloperActivity extends ItemActivity {
         }
     }
 
+    private DeveloperSettingsPolicy.RuntimeState currentRuntimeState() {
+        return new DeveloperSettingsPolicy.RuntimeState(
+                isWifiEnabled(),
+                isWifiConnected(),
+                getConnectedSsid(),
+                StaticIpPolicy.isStaticEnabled(staticIpStore),
+                Procfs.findProcess(adbStartCommand) != -1,
+                Procfs.findProcess(telnetStartCommand) != -1);
+    }
+
     @Override
     protected void onResume() {
         super.onResume();
         SonyPowerBridge.notifyAppInfo(this, getComponentName());
+        DeveloperSettingsPolicy.bootstrapSnapshotIfEmpty(devStore, currentRuntimeState());
         if (!restoredThisLaunch) {
             restoredThisLaunch = true;
             reconcilePersistedSettings(true);

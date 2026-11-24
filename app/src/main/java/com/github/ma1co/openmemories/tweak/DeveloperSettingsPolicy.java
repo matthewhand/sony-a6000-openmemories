@@ -8,6 +8,7 @@ package com.github.ma1co.openmemories.tweak;
 final class DeveloperSettingsPolicy {
     static final String PREFS_NAME = "developer_prefs";
     static final String KEY_PERSIST_ENABLED = "persist_enabled";
+    static final String KEY_HAS_SNAPSHOT = "has_snapshot";
     static final String KEY_WANT_WIFI = "want_wifi";
     static final String KEY_WANT_STATIC_IP = "want_static_ip";
     static final String KEY_WANT_KEEP_AWAKE = "keep_awake_apo";
@@ -129,6 +130,9 @@ final class DeveloperSettingsPolicy {
         if (store == null || key == null) return;
         if (KEY_PERSIST_ENABLED.equals(key) || store.getBoolean(KEY_PERSIST_ENABLED, true)) {
             store.putBoolean(key, value);
+            if (!KEY_PERSIST_ENABLED.equals(key)) {
+                store.putBoolean(KEY_HAS_SNAPSHOT, true);
+            }
         }
     }
 
@@ -138,6 +142,27 @@ final class DeveloperSettingsPolicy {
         if (norm.length() > 0) {
             store.putString(KEY_TRUSTED_SSID, norm);
         }
+    }
+
+    /**
+     * Auto-captures already-active runtime toggles on first launch/upgrade when persistence
+     * is enabled and no explicit snapshot has been recorded yet. Never overwrites explicit
+     * user preferences once KEY_HAS_SNAPSHOT is true.
+     */
+    static boolean bootstrapSnapshotIfEmpty(Store store, RuntimeState current) {
+        if (store == null || current == null) return false;
+        if (!store.getBoolean(KEY_PERSIST_ENABLED, true)) return false;
+        if (store.getBoolean(KEY_HAS_SNAPSHOT, false)) return false;
+        boolean anyActive = current.wifiEnabled || current.staticIpActive
+                || current.adbRunning || current.telnetRunning;
+        if (!anyActive) return false;
+        store.putBoolean(KEY_WANT_WIFI, current.wifiEnabled);
+        store.putBoolean(KEY_WANT_STATIC_IP, current.staticIpActive);
+        store.putBoolean(KEY_WANT_ADB, current.adbRunning);
+        store.putBoolean(KEY_WANT_TELNET, current.telnetRunning);
+        recordTrustedSsidIfAvailable(store, current.connectedSsid);
+        store.putBoolean(KEY_HAS_SNAPSHOT, true);
+        return true;
     }
 
     static ReconcilePlan planRestore(Snapshot desired, RuntimeState current) {
