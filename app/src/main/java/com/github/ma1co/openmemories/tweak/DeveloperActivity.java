@@ -21,18 +21,18 @@ import android.widget.TextView;
 import java.util.concurrent.TimeoutException;
 
 public class DeveloperActivity extends ItemActivity {
-    private static final String PREFS_DEV = "developer_prefs";
-    private static final String KEY_KEEP_AWAKE = "keep_awake_apo";
-
     private ConnectivityManager connectivityManager;
     private WifiManager wifiManager;
     private BroadcastReceiver receiver;
     private BaseItem wifiSwitch;
     private BaseItem staticIpSwitch;
+    private BaseItem persistSwitch;
     private AndroidStaticIpStore staticIpStore;
+    private AndroidDeveloperSettingsStore devStore;
     private final AutoPowerOffPolicy apoPolicy = new AutoPowerOffPolicy();
     private final String[] telnetStartCommand = new String[] { "busybox", "telnetd", "-l", "sh" };
     private String[] adbStartCommand;
+    private boolean restoredThisLaunch;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -41,23 +41,17 @@ public class DeveloperActivity extends ItemActivity {
         connectivityManager = (ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
         wifiManager = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
         staticIpStore = new AndroidStaticIpStore(this);
+        devStore = new AndroidDeveloperSettingsStore(this);
         adbStartCommand = new String[] { getApplicationInfo().nativeLibraryDir + "/libadbd.so" };
 
         wifiSwitch = addSwitch("Enable Wifi", new SwitchItem.Adapter() {
-            @Override
-            public boolean isAvailable() {
-                return true;
-            }
-
-            @Override
-            public boolean isEnabled() {
-                return isWifiEnabled();
-            }
-
-            @Override
-            public void setEnabled(boolean enabled) {
+            @Override public boolean isAvailable() { return true; }
+            @Override public boolean isEnabled() { return isWifiEnabled(); }
+            @Override public void setEnabled(boolean enabled) {
+                DeveloperSettingsPolicy.recordBooleanIfPersisting(devStore, DeveloperSettingsPolicy.KEY_WANT_WIFI, enabled);
                 setWifiEnabled(enabled);
                 syncAutoPowerOff();
+                if (persistSwitch != null) persistSwitch.update();
             }
 
             @Override
@@ -66,9 +60,9 @@ public class DeveloperActivity extends ItemActivity {
                     case WifiManager.WIFI_STATE_ENABLED:
                         NetworkInfo networkInfo = connectivityManager.getNetworkInfo(ConnectivityManager.TYPE_WIFI);
                         WifiInfo wifiInfo = wifiManager.getConnectionInfo();
-                        if (networkInfo.isConnected()) {
+                        if (networkInfo != null && networkInfo.isConnected() && wifiInfo != null) {
                             return String.format("Connected to %s (IP: %s)", wifiInfo.getSSID(), Formatter.formatIpAddress(wifiInfo.getIpAddress()));
-                        } else {
+                        } else if (wifiInfo != null) {
                             NetworkInfo.DetailedState state = WifiInfo.getDetailedStateOf(wifiInfo.getSupplicantState());
                             switch (state) {
                                 case SCANNING:
@@ -81,6 +75,7 @@ public class DeveloperActivity extends ItemActivity {
                                     return "Wifi enabled";
                             }
                         }
+                        return "Wifi enabled";
                     case WifiManager.WIFI_STATE_ENABLING:
                         return "Enabling...";
                     default:
@@ -107,6 +102,8 @@ public class DeveloperActivity extends ItemActivity {
                     Logger.info("StaticIp", (r.ok ? "OK: " : "FAIL: ") + r.message);
                     if (!r.ok) throw new IllegalStateException(r.message);
                 }
+                DeveloperSettingsPolicy.recordBooleanIfPersisting(devStore, DeveloperSettingsPolicy.KEY_WANT_STATIC_IP, enabled);
+                if (persistSwitch != null) persistSwitch.update();
             }
             @Override public String getSummary() { return StaticIpPolicy.summary(staticIpStore); }
         });
@@ -115,103 +112,84 @@ public class DeveloperActivity extends ItemActivity {
             @Override public void click() { showStaticIpDialog(); }
         });
 
-        addSwitch("Enable Telnet", new SwitchItem.Adapter() {
-            private int getTelnetPid() {
-                return Procfs.findProcess(telnetStartCommand);
+        addSwitch("5-min Wi-Fi watchdog (OFF-ack)", new SwitchItem.Adapter() {
+            @Override public boolean isAvailable() { return true; }
+            @Override public boolean isEnabled() { return PeriodicWifiService.isArmed(DeveloperActivity.this); }
+            @Override public void setEnabled(boolean enabled) {
+                PeriodicWifiService.setArmed(DeveloperActivity.this, enabled);
+                DeveloperSettingsPolicy.recordBooleanIfPersisting(devStore, DeveloperSettingsPolicy.KEY_WANT_WATCHDOG, enabled);
+                if (persistSwitch != null) persistSwitch.update();
             }
-
-            private void enableTelnet() throws NativeException {
-                Shell.exec(TextUtils.join(" ", telnetStartCommand));
-            }
-
-            private void disableTelnet() throws NativeException {
-                int pid = getTelnetPid();
-                if (pid != -1)
-                    Shell.exec("kill -HUP " + pid + " $(ps -o pid= --ppid " + pid + ")");
-            }
-
-            @Override
-            public boolean isAvailable() {
-                return true;
-            }
-
-            @Override
-            public boolean isEnabled() {
-                return getTelnetPid() != -1;
-            }
-
-            @Override
-            public void setEnabled(final boolean enabled) throws InterruptedException, NativeException, TimeoutException {
-                try {
-                    Logger.info("TelnetAdapter.setEnabled", "setting telnetd to " + enabled);
-                    if (enabled)
-                        enableTelnet();
-                    else
-                        disableTelnet();
-                    Condition.waitFor(new Condition.Runnable() {
-                        @Override public boolean run() { return isEnabled() == enabled; }
-                    }, 500, 2000);
-                    syncAutoPowerOff();
-                    Logger.info("TelnetAdapter.setEnabled", "done");
-                } catch (InterruptedException | NativeException | TimeoutException e) {
-                    Logger.error("TelnetAdapter.setEnabled", e);
-                    throw e;
-                }
-            }
-
-            @Override
-            public String getSummary() {
-                return isEnabled() ? "telnetd running on port 23" : "telnetd stopped";
+            @Override public String getSummary() {
+                return "Watchdog: " + PeriodicWifiService.shortStatus(DeveloperActivity.this);
             }
         });
 
         addSwitch("Enable ADB", new SwitchItem.Adapter() {
-            private int getAdbPid() {
-                return Procfs.findProcess(adbStartCommand);
-            }
-
-            private void enableAdb() throws NativeException {
-                Shell.execAndroid(TextUtils.join(" ", adbStartCommand) + " &");
-            }
-
+            private int getAdbPid() { return Procfs.findProcess(adbStartCommand); }
+            private void enableAdb() throws NativeException { Shell.execAndroid(TextUtils.join(" ", adbStartCommand) + " &"); }
             private void disableAdb() throws NativeException {
                 int pid = getAdbPid();
-                if (pid != -1)
-                    Shell.exec("kill -HUP " + pid);
+                if (pid != -1) Shell.exec("kill -HUP " + pid);
             }
-
-            @Override
-            public boolean isAvailable() {
-                return true;
-            }
-
-            @Override
-            public boolean isEnabled() {
-                return getAdbPid() != -1;
-            }
-
+            @Override public boolean isAvailable() { return true; }
+            @Override public boolean isEnabled() { return getAdbPid() != -1; }
             @Override
             public void setEnabled(final boolean enabled) throws InterruptedException, NativeException, TimeoutException {
                 try {
                     Logger.info("AdbAdapter.setEnabled", "setting adbd to " + enabled);
-                    if (enabled)
-                        enableAdb();
-                    else
-                        disableAdb();
+                    if (enabled) enableAdb(); else disableAdb();
                     Condition.waitFor(new Condition.Runnable() {
                         @Override public boolean run() { return isEnabled() == enabled; }
                     }, 500, 2000);
+                    DeveloperSettingsPolicy.recordBooleanIfPersisting(devStore, DeveloperSettingsPolicy.KEY_WANT_ADB, enabled);
+                    if (enabled) {
+                        DeveloperSettingsPolicy.recordTrustedSsidIfAvailable(devStore, getConnectedSsid());
+                    }
                     syncAutoPowerOff();
+                    if (persistSwitch != null) persistSwitch.update();
                     Logger.info("AdbAdapter.setEnabled", "done");
                 } catch (InterruptedException | NativeException | TimeoutException e) {
                     Logger.error("AdbAdapter.setEnabled", e);
                     throw e;
                 }
             }
-
-            @Override
-            public String getSummary() {
+            @Override public String getSummary() {
                 return isEnabled() ? "adbd running on port 5555" : "adbd stopped";
+            }
+        });
+
+        addSwitch("Enable Telnet", new SwitchItem.Adapter() {
+            private int getTelnetPid() { return Procfs.findProcess(telnetStartCommand); }
+            private void enableTelnet() throws NativeException { Shell.exec(TextUtils.join(" ", telnetStartCommand)); }
+            private void disableTelnet() throws NativeException {
+                int pid = getTelnetPid();
+                if (pid != -1) Shell.exec("kill -HUP " + pid + " $(ps -o pid= --ppid " + pid + ")");
+            }
+            @Override public boolean isAvailable() { return true; }
+            @Override public boolean isEnabled() { return getTelnetPid() != -1; }
+            @Override
+            public void setEnabled(final boolean enabled) throws InterruptedException, NativeException, TimeoutException {
+                try {
+                    Logger.info("TelnetAdapter.setEnabled", "setting telnetd to " + enabled);
+                    if (enabled) enableTelnet(); else disableTelnet();
+                    Condition.waitFor(new Condition.Runnable() {
+                        @Override public boolean run() { return isEnabled() == enabled; }
+                    }, 500, 2000);
+                    DeveloperSettingsPolicy.recordBooleanIfPersisting(devStore, DeveloperSettingsPolicy.KEY_WANT_TELNET, enabled);
+                    if (enabled) {
+                        DeveloperSettingsPolicy.recordTrustedSsidIfAvailable(devStore, getConnectedSsid());
+                    }
+                    syncAutoPowerOff();
+                    if (persistSwitch != null) persistSwitch.update();
+                    Logger.info("TelnetAdapter.setEnabled", "done");
+                } catch (InterruptedException | NativeException | TimeoutException e) {
+                    Logger.error("TelnetAdapter.setEnabled", e);
+                    throw e;
+                }
+            }
+            @Override public String getSummary() {
+                return isEnabled() ? "telnetd running on port 23" : "telnetd stopped";
             }
         });
 
@@ -219,15 +197,45 @@ public class DeveloperActivity extends ItemActivity {
             @Override public boolean isAvailable() { return true; }
             @Override public boolean isEnabled() { return isKeepAwakePrefEnabled(); }
             @Override public void setEnabled(boolean enabled) {
-                getSharedPreferences(PREFS_DEV, MODE_PRIVATE).edit().putBoolean(KEY_KEEP_AWAKE, enabled).commit();
+                devStore.putBoolean(DeveloperSettingsPolicy.KEY_WANT_KEEP_AWAKE, enabled);
                 apoPolicy.reset();
                 syncAutoPowerOff();
+                if (persistSwitch != null) persistSwitch.update();
             }
             @Override public String getSummary() {
                 if (!isKeepAwakePrefEnabled()) return "Normal Sony auto power off";
                 return AutoPowerOffPolicy.MODE_DISABLE.equals(apoPolicy.lastSentMode())
                         ? "Auto power off inhibited (APO/NO)"
                         : "Armed (inhibits APO while Wi-Fi/daemons active)";
+            }
+        });
+
+        persistSwitch = addSwitch("Persist Developer settings", new SwitchItem.Adapter() {
+            @Override public boolean isAvailable() { return true; }
+            @Override public boolean isEnabled() { return DeveloperSettingsPolicy.read(devStore).persistEnabled; }
+            @Override public void setEnabled(boolean enabled) {
+                DeveloperSettingsPolicy.recordBooleanIfPersisting(
+                        devStore, DeveloperSettingsPolicy.KEY_PERSIST_ENABLED, enabled);
+                if (enabled) {
+                    snapshotCurrentStateToPrefs();
+                }
+            }
+            @Override public String getSummary() {
+                return DeveloperSettingsPolicy.summary(DeveloperSettingsPolicy.read(devStore));
+            }
+        });
+
+        addSwitch("Auto boot recovery", new SwitchItem.Adapter() {
+            @Override public boolean isAvailable() { return true; }
+            @Override public boolean isEnabled() { return DeveloperSettingsPolicy.read(devStore).bootAutorun; }
+            @Override public void setEnabled(boolean enabled) {
+                devStore.putBoolean(DeveloperSettingsPolicy.KEY_BOOT_AUTORUN, enabled);
+                BootRecoveryService.resetCrashGuard(DeveloperActivity.this);
+            }
+            @Override public String getSummary() {
+                return isEnabled()
+                        ? "Reconciles persisted settings on boot (3-crash guard)"
+                        : "Boot autorun disabled";
             }
         });
 
@@ -238,10 +246,64 @@ public class DeveloperActivity extends ItemActivity {
         receiver = new BroadcastReceiver() {
             @Override
             public void onReceive(Context context, Intent intent) {
-                wifiSwitch.update();
+                reconcilePersistedSettings(false);
+                update();
                 syncAutoPowerOff();
             }
         };
+    }
+
+    private void snapshotCurrentStateToPrefs() {
+        DeveloperSettingsPolicy.recordBooleanIfPersisting(devStore, DeveloperSettingsPolicy.KEY_WANT_WIFI, isWifiEnabled());
+        DeveloperSettingsPolicy.recordBooleanIfPersisting(devStore, DeveloperSettingsPolicy.KEY_WANT_STATIC_IP, StaticIpPolicy.isStaticEnabled(staticIpStore));
+        DeveloperSettingsPolicy.recordBooleanIfPersisting(devStore, DeveloperSettingsPolicy.KEY_WANT_WATCHDOG, PeriodicWifiService.isArmed(this));
+        DeveloperSettingsPolicy.recordBooleanIfPersisting(devStore, DeveloperSettingsPolicy.KEY_WANT_ADB, Procfs.findProcess(adbStartCommand) != -1);
+        DeveloperSettingsPolicy.recordBooleanIfPersisting(devStore, DeveloperSettingsPolicy.KEY_WANT_TELNET, Procfs.findProcess(telnetStartCommand) != -1);
+        DeveloperSettingsPolicy.recordTrustedSsidIfAvailable(devStore, getConnectedSsid());
+    }
+
+    private void reconcilePersistedSettings(boolean allowRadioToggle) {
+        DeveloperSettingsPolicy.Snapshot desired = DeveloperSettingsPolicy.read(devStore);
+        DeveloperSettingsPolicy.RuntimeState state = new DeveloperSettingsPolicy.RuntimeState(
+                isWifiEnabled(),
+                isWifiConnected(),
+                getConnectedSsid(),
+                StaticIpPolicy.isStaticEnabled(staticIpStore),
+                PeriodicWifiService.isArmed(this),
+                Procfs.findProcess(adbStartCommand) != -1,
+                Procfs.findProcess(telnetStartCommand) != -1);
+        DeveloperSettingsPolicy.ReconcilePlan plan = DeveloperSettingsPolicy.planRestore(desired, state);
+        if (plan.isEmpty()) return;
+
+        if (allowRadioToggle && plan.applyStaticIp) {
+            StaticIpPolicy.Config saved = StaticIpPolicy.readSavedConfig(staticIpStore);
+            if (saved != null) StaticIpPolicy.applyStatic(staticIpStore, saved);
+        }
+        if (allowRadioToggle && plan.enableWifi) {
+            setWifiEnabled(true);
+        }
+        if (allowRadioToggle && plan.armWatchdog) {
+            PeriodicWifiService.setArmed(this, true);
+        }
+        if (plan.startAdb) {
+            try { Shell.execAndroid(TextUtils.join(" ", adbStartCommand) + " &"); }
+            catch (NativeException e) { Logger.error("DeveloperActivity.restoreAdb", e); }
+        }
+        if (plan.startTelnet) {
+            try { Shell.exec(TextUtils.join(" ", telnetStartCommand)); }
+            catch (NativeException e) { Logger.error("DeveloperActivity.restoreTelnet", e); }
+        }
+    }
+
+    private boolean isWifiConnected() {
+        NetworkInfo info = connectivityManager == null ? null : connectivityManager.getNetworkInfo(ConnectivityManager.TYPE_WIFI);
+        return info != null && info.isConnected();
+    }
+
+    private String getConnectedSsid() {
+        if (!isWifiConnected() || wifiManager == null) return "";
+        WifiInfo info = wifiManager.getConnectionInfo();
+        return info == null ? "" : DeveloperSettingsPolicy.normalizeSsid(info.getSSID());
     }
 
     private void showStaticIpDialog() {
@@ -274,7 +336,11 @@ public class DeveloperActivity extends ItemActivity {
                                 dns2In.getText().toString().trim());
                         StaticIpPolicy.Result r = StaticIpPolicy.applyStatic(staticIpStore, cfg);
                         Logger.info("StaticIp", (r.ok ? "OK: " : "FAIL: ") + r.message);
-                        if (staticIpSwitch != null) staticIpSwitch.update();
+                        if (r.ok) {
+                            DeveloperSettingsPolicy.recordBooleanIfPersisting(
+                                    devStore, DeveloperSettingsPolicy.KEY_WANT_STATIC_IP, true);
+                        }
+                        update();
                         if (!r.ok) {
                             new AlertDialog.Builder(DeveloperActivity.this)
                                     .setTitle("Static IP Error")
@@ -297,7 +363,7 @@ public class DeveloperActivity extends ItemActivity {
     }
 
     private boolean isKeepAwakePrefEnabled() {
-        return getSharedPreferences(PREFS_DEV, MODE_PRIVATE).getBoolean(KEY_KEEP_AWAKE, true);
+        return DeveloperSettingsPolicy.read(devStore).wantKeepAwake;
     }
 
     private boolean isAnyNetworkOrDaemonActive() {
@@ -317,8 +383,13 @@ public class DeveloperActivity extends ItemActivity {
     protected void onResume() {
         super.onResume();
         SonyPowerBridge.notifyAppInfo(this, getComponentName());
+        if (!restoredThisLaunch) {
+            restoredThisLaunch = true;
+            reconcilePersistedSettings(true);
+        }
         apoPolicy.reset();
         syncAutoPowerOff();
+        update();
 
         IntentFilter f = new IntentFilter();
         f.addAction(WifiManager.WIFI_STATE_CHANGED_ACTION);

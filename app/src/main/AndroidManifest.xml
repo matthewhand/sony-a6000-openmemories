@@ -6,6 +6,7 @@
 
     <uses-sdk android:minSdkVersion="10" android:targetSdkVersion="10" />
 
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
@@ -25,12 +26,25 @@
         <activity android:name=".ProtectionActivity" android:theme="@style/BaseTheme" />
         <activity android:name=".DeveloperActivity" android:theme="@style/BaseTheme" />
 
-        <receiver android:name=".DisableWiFiOnSuspend">
+        <receiver android:name=".BootRecoveryReceiver" android:exported="true">
             <intent-filter>
-                <action android:name="com.android.server.SyncAndroidService.SUSPEND"/>
-                <category android:name="com.android.server.SyncAndroidService.SUSPEND"/>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="com.android.server.DAConnectionManagerService.BootCompleted" />
+                <category android:name="ANDROID.INTENT.CATEGORY.DEFAULT" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="com.android.server.DAConnectionManagerService.BootCompleted" />
             </intent-filter>
         </receiver>
+        <receiver android:name=".WifiEnabledReceiver" android:exported="false">
+            <intent-filter>
+                <action android:name="android.net.wifi.WIFI_STATE_CHANGED" />
+            </intent-filter>
+        </receiver>
+        <service android:name=".BootRecoveryService" android:exported="false" />
+        <service android:name=".PeriodicWifiService" android:exported="false" />
     </application>
 
 </manifest>
