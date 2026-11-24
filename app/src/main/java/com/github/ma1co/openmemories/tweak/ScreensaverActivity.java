@@ -74,13 +74,14 @@ public final class ScreensaverActivity extends Activity {
 
     @Override protected void onResume() {
         super.onResume();
+        BootRecoveryPolicy.SHARED.onUiResumed();
         SharedPreferences prefs = getSharedPreferences(DeveloperSettingsPolicy.PREFS_NAME, MODE_PRIVATE);
         delaySec = ScreensaverPolicy.clampDelaySec(prefs.getInt(ScreensaverPolicy.KEY_DELAY_SEC, ScreensaverPolicy.DEFAULT_DELAY_SEC));
         dimSec = ScreensaverPolicy.clampDimSec(prefs.getInt(ScreensaverPolicy.KEY_DIM_SEC, ScreensaverPolicy.DEFAULT_DIM_SEC));
         ScreensaverPolicy.Style configured = ScreensaverPolicy.parseStyle(
                 prefs.getString(ScreensaverPolicy.KEY_STYLE, ScreensaverPolicy.Style.RANDOM.id));
         style = ScreensaverPolicy.resolveConcreteStyle(configured, SystemClock.elapsedRealtime() ^ System.nanoTime());
-        boolean hudOn = prefs.getBoolean(ScreensaverPolicy.KEY_HUD_ENABLED, true);
+        boolean hudOn = prefs.getBoolean(ScreensaverPolicy.KEY_HUD_ENABLED, ScreensaverPolicy.DEFAULT_HUD_ENABLED);
         dimBacklightOff = prefs.getBoolean(LivePreviewActivity.KEY_DIM_BACKLIGHT_OFF, true);
 
         view.setStyle(style);
@@ -103,6 +104,7 @@ public final class ScreensaverActivity extends Activity {
 
     @Override protected void onPause() {
         running = false;
+        BootRecoveryPolicy.SHARED.onUiPaused();
         handler.removeCallbacksAndMessages(null);
         displayBacklight.restore(this);
         view.clearGalleryBitmap();

@@ -43,11 +43,13 @@ public final class BootRecoveryService extends Service {
         guard.edit().putInt(KEY_FAILURES, failures + 1).commit();
         started = true;
 
-        handler.postDelayed(new Runnable() { @Override public void run() { restoreNetworkPhase(); } }, 2000L);
-        // Launch past Sony DAConnectionManagerService's 5s stopAppSwitches() window.
-        handler.postDelayed(new Runnable() { @Override public void run() { launchUiPhase(); } }, 6500L);
-        handler.postDelayed(new Runnable() { @Override public void run() { restoreDaemonsIfConnected(); } }, 15000L);
-        handler.postDelayed(new Runnable() { @Override public void run() { restoreDaemonsIfConnected(); } }, 25000L);
+        handler.postDelayed(new Runnable() { @Override public void run() { restoreNetworkPhase(); } }, 300L);
+        handler.postDelayed(new Runnable() { @Override public void run() { launchUiPhase(); } }, 1000L);
+        handler.postDelayed(new Runnable() { @Override public void run() { restoreNetworkPhase(); } }, 2500L);
+        handler.postDelayed(new Runnable() { @Override public void run() { launchUiPhase(); } }, 4000L);
+        handler.postDelayed(new Runnable() { @Override public void run() { launchUiPhase(); } }, 7000L);
+        handler.postDelayed(new Runnable() { @Override public void run() { restoreDaemonsIfConnected(); } }, 10000L);
+        handler.postDelayed(new Runnable() { @Override public void run() { restoreDaemonsIfConnected(); } }, 20000L);
         handler.postDelayed(new Runnable() { @Override public void run() { restoreDaemonsIfConnected(); } }, 35000L);
         handler.postDelayed(new Runnable() { @Override public void run() { restoreDaemonsIfConnected(); } }, 45000L);
         handler.postDelayed(new Runnable() { @Override public void run() { finishBoot(guard); } }, 55000L);
@@ -56,13 +58,15 @@ public final class BootRecoveryService extends Service {
     private void restoreNetworkPhase() {
         if (!started) return;
         try {
-            DeveloperSettingsPolicy.Snapshot desired = DeveloperSettingsPolicy.read(
-                    new AndroidDeveloperSettingsStore(this));
+            AndroidDeveloperSettingsStore devStore = new AndroidDeveloperSettingsStore(this);
             AndroidStaticIpStore ipStore = new AndroidStaticIpStore(this);
+            boolean staticOn = StaticIpPolicy.isStaticEnabled(ipStore);
+            DeveloperSettingsPolicy.Snapshot desired = DeveloperSettingsPolicy.readAndHealForNetwork(
+                    devStore, staticOn);
             WifiManager wifi = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
             boolean wifiOn = wifi != null && wifi.isWifiEnabled();
             DeveloperSettingsPolicy.RuntimeState state = new DeveloperSettingsPolicy.RuntimeState(
-                    wifiOn, false, "", StaticIpPolicy.isStaticEnabled(ipStore), false, false);
+                    wifiOn, false, "", staticOn, false, false);
             DeveloperSettingsPolicy.ReconcilePlan plan = DeveloperSettingsPolicy.planRestore(desired, state);
 
             if (plan.applyStaticIp) {
@@ -88,6 +92,10 @@ public final class BootRecoveryService extends Service {
 
     private void launchUiPhase() {
         if (!started) return;
+        if (!BootRecoveryPolicy.SHARED.shouldLaunchUi()) {
+            Logger.info("BootRecovery.launch", "Skipped UI launch (app UI already opened/foreground)");
+            return;
+        }
         try {
             Intent launch = new Intent(this, resolveBootActivityClass());
             launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);

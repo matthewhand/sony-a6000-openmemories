@@ -10,6 +10,7 @@ final class ScreensaverPolicy {
     static final String KEY_DIM_SEC = "screensaver_dim_sec";
     static final String KEY_STYLE = "screensaver_style";
     static final String KEY_HUD_ENABLED = "screensaver_hud_enabled";
+    static final boolean DEFAULT_HUD_ENABLED = false;
 
     static final int DEFAULT_DELAY_SEC = 60;
     static final int DEFAULT_DIM_SEC = 300;
