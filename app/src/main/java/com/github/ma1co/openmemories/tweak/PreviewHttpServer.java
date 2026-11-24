@@ -67,6 +67,11 @@ final class PreviewHttpServer {
 
     private final AtomicInteger activeClients = new AtomicInteger(0);
     private final AtomicInteger mjpegClients = new AtomicInteger(0);
+    private final AtomicInteger totalRequests = new AtomicInteger(0);
+    private volatile String lastClientIp = "";
+    private volatile String lastClientMethod = "";
+    private volatile String lastClientPath = "";
+    private volatile long lastClientAtMs = -1L;
     private volatile boolean running;
     private ServerSocket serverSocket;
     private Thread acceptThread;
@@ -111,6 +116,15 @@ final class PreviewHttpServer {
 
     int activeClientCount() { return activeClients.get(); }
     int mjpegClientCount() { return mjpegClients.get(); }
+    int totalRequestCount() { return totalRequests.get(); }
+
+    String formatLastClientSummary(long nowMs) {
+        long at = lastClientAtMs;
+        String ip = lastClientIp;
+        if (at < 0L || ip == null || ip.length() == 0) return "none yet";
+        long ageSec = nowMs >= at ? (nowMs - at) / 1000L : 0L;
+        return ip + " " + lastClientMethod + " " + lastClientPath + " (" + ageSec + "s ago)";
+    }
 
     void stop() {
         running = false;
@@ -181,6 +195,12 @@ final class PreviewHttpServer {
             int q = rawPath.indexOf('?');
             String path = q >= 0 ? rawPath.substring(0, q) : rawPath;
             String query = q >= 0 ? rawPath.substring(q + 1) : "";
+            totalRequests.incrementAndGet();
+            InetAddress remoteAddr = socket.getInetAddress();
+            lastClientIp = remoteAddr == null ? "client" : remoteAddr.getHostAddress();
+            lastClientMethod = method;
+            lastClientPath = path;
+            lastClientAtMs = hooks.nowMs();
 
             if (expectedAuthHeader != null) {
                 String auth = findHeader(lines, "authorization");

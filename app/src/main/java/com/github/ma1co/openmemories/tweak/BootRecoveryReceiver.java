@@ -14,11 +14,17 @@ import android.util.Log;
  */
 public final class BootRecoveryReceiver extends BroadcastReceiver {
     static final String ACTION_APPLY_STATIC_IP = "com.github.ma1co.openmemories.tweak.APPLY_STATIC_IP";
+    static final String ACTION_FINISH_COMP = "com.github.ma1co.openmemories.tweak.FINISH_COMP";
     private static final String TAG = "OpenMemoriesBoot";
 
     @Override public void onReceive(Context context, Intent intent) {
         if (context == null || intent == null) return;
         String action = intent.getAction();
+        if (ACTION_FINISH_COMP.equals(action)) {
+            Log.i(TAG, "Received FINISH_COMP unstick broadcast");
+            SonyPowerBridge.completeAndroidExitIfStuck(context.getApplicationContext());
+            return;
+        }
         if (ACTION_APPLY_STATIC_IP.equals(action)) {
             handleStaticIpProvision(context.getApplicationContext(), intent);
             return;

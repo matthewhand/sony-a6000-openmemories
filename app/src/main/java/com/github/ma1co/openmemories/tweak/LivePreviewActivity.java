@@ -1,8 +1,10 @@
 package com.github.ma1co.openmemories.tweak;
 
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.content.BroadcastReceiver;
 import android.content.Context;
+import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.graphics.Bitmap;
@@ -26,8 +28,11 @@ import android.view.SurfaceHolder;
 import android.view.SurfaceView;
 import android.view.View;
 import android.view.WindowManager;
+import android.widget.Button;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
+import android.widget.LinearLayout;
+import android.widget.ScrollView;
 import android.widget.TextView;
 
 import java.io.File;
@@ -75,6 +80,7 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
     private final MotionDetectorPolicy motionPolicy = new MotionDetectorPolicy();
     private final PreviewFrameBus frameBus = new PreviewFrameBus();
     private final SonyDisplayBacklight displayBacklight = new SonyDisplayBacklight();
+    private final QuickPopupMenuPolicy.EventHistory eventHistory = new QuickPopupMenuPolicy.EventHistory();
     private final Object captureLock = new Object();
 
     private AndroidDeveloperSettingsStore devStore;
@@ -83,6 +89,9 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
     private TextView motionStillBanner;
     private TextView statusStrip;
     private ScreensaverView saverOverlay;
+    private AlertDialog c2QuickDialog;
+    private long activityStartedElapsedMs;
+    private int lastRecordedHttpReqCount;
     private Bitmap activeMotionBitmap;
     private long motionStillUntilMs;
     private PreviewHttpServer httpServer;
@@ -144,12 +153,15 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
         @Override public float batteryTempCelsius() { return cachedBatteryTemp; }
         @Override public float batteryVoltageVolts() { return cachedBatteryVoltage; }
         @Override public void wakeScreen(final String reason) {
+            eventHistory.record(SystemClock.elapsedRealtime(), "HTTP wake (" + reason + ")");
             uiHandler.post(new Runnable() { @Override public void run() { if (running) wakeToLive(reason); } });
         }
         @Override public void enterScreensaver() {
+            eventHistory.record(SystemClock.elapsedRealtime(), "HTTP enter screensaver");
             uiHandler.post(new Runnable() { @Override public void run() { if (running) switchToScreensaver(); } });
         }
         @Override public void enterFullDim() {
+            eventHistory.record(SystemClock.elapsedRealtime(), "HTTP enter full dim");
             uiHandler.post(new Runnable() { @Override public void run() { if (running) switchToFullDim(); } });
         }
         @Override public void setMotionDetectEnabled(boolean enabled) {
@@ -204,6 +216,8 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
     @Override protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         BootRecoveryPolicy.SHARED.markUiOpened();
+        activityStartedElapsedMs = SystemClock.elapsedRealtime();
+        eventHistory.record(activityStartedElapsedMs, "Webcam session started");
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         devStore = new AndroidDeveloperSettingsStore(this);
 
@@ -331,6 +345,7 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
         uiHandler.removeCallbacks(startCameraPipelineTask);
         uiHandler.removeCallbacks(uiTick);
         uiHandler.removeCallbacks(telemetryTick);
+        dismissC2QuickPopup();
         clearMotionStillOverlay();
         saverOverlay.clearGalleryBitmap();
         displayBacklight.restore(this);
@@ -423,6 +438,7 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
 
     private void handleC1CustomButton() {
         long now = SystemClock.elapsedRealtime();
+        eventHistory.record(now, "C1 pressed (" + c1Action.shortHint + ")");
         switch (c1Action) {
             case TOGGLE_SAVER_DIM:
                 saverPausedByC1 = !saverPausedByC1;
@@ -490,11 +506,225 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
         }
     }
 
+    private void dismissC2QuickPopup() {
+        AlertDialog dlg = c2QuickDialog;
+        c2QuickDialog = null;
+        if (dlg != null) {
+            try { if (dlg.isShowing()) dlg.dismiss(); } catch (RuntimeException ignored) {}
+        }
+    }
+
+    private QuickPopupMenuPolicy.TelemetrySnapshot buildPopupTelemetrySnapshot() {
+        long now = SystemClock.elapsedRealtime();
+        String ssid = "--";
+        try {
+            WifiManager wm = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
+            if (wm != null && wm.getWifiState() == WifiManager.WIFI_STATE_ENABLED) {
+                WifiInfo info = wm.getConnectionInfo();
+                if (info != null && info.getSSID() != null) {
+                    String norm = DeveloperSettingsPolicy.normalizeSsid(info.getSSID());
+                    if (norm.length() > 0) ssid = norm;
+                }
+            }
+        } catch (RuntimeException ignored) {}
+
+        String adbBin = getApplicationInfo().nativeLibraryDir + "/libadbd.so";
+        boolean adbOn = Procfs.findProcess(new String[] { adbBin }) != -1;
+        boolean telnetOn = Procfs.findProcess(new String[] { "busybox", "telnetd", "-l", "sh" }) != -1;
+
+        String clockIso = "unsynced (waiting for NTP)";
+        long epoch = System.currentTimeMillis();
+        if (epoch >= SntpClientPolicy.MIN_VALID_EPOCH_MS) {
+            java.util.Calendar cal = new java.util.GregorianCalendar(java.util.TimeZone.getTimeZone("UTC"));
+            cal.setTimeInMillis(epoch);
+            clockIso = SntpClientPolicy.formatUtcIso(cal) + "Z (NTP)";
+        }
+
+        PreviewHttpServer srv = httpServer;
+        int activeCli = srv == null ? 0 : srv.activeClientCount();
+        int mjpegCli = srv == null ? 0 : srv.mjpegClientCount();
+        int totalReqs = srv == null ? 0 : srv.totalRequestCount();
+        String lastCli = srv == null ? "none yet" : srv.formatLastClientSummary(now);
+
+        float fps = Math.round(frameBus.fps() * 10.0f) / 10.0f;
+        boolean keepAwake = devStore == null || DeveloperSettingsPolicy.read(devStore).wantKeepAwake;
+        long uptimeSec = now >= activityStartedElapsedMs ? (now - activityStartedElapsedMs) / 1000L : 0L;
+
+        boolean sdSave = MotionGalleryStore.isSaveEnabled(this);
+        String sdSummary = MotionStoragePolicy.formatSummary(MotionGalleryStore.inspectStats(this));
+
+        return new QuickPopupMenuPolicy.TelemetrySnapshot(
+                cachedIp, ssid, cachedRssi, cachedStaticOn,
+                adbOn, telnetOn, clockIso,
+                frameBus.cameraState(), frameBus.cameraError(), frameBus.activePreset(), fps, frameBus.frameCount(),
+                activeCli, mjpegCli, totalReqs, lastCli,
+                cachedBatteryLevel, cachedBatteryVoltage, cachedBatteryTemp, keepAwake, uptimeSec,
+                screenPolicy.stage().name(), saverDelaySec, saverDimSec,
+                configuredSaverStyle.label, saverStyle.label, saverHudEnabled, saverPausedByC1,
+                motionWakeEnabled, lastMotionDetected, motionPolicy.motionEvents(), screenPolicy.lastWakeReason(),
+                sdSave, sdSummary, eventHistory.formatRecent(now));
+    }
+
+    private void showOrDismissC2QuickPopup() {
+        if (c2QuickDialog != null && c2QuickDialog.isShowing()) {
+            dismissC2QuickPopup();
+            return;
+        }
+        wakeToLive("c2");
+        eventHistory.record(SystemClock.elapsedRealtime(), "C2 Quick Menu opened");
+        showC2QuickPopupInternal();
+    }
+
+    private void showC2QuickPopupInternal() {
+        dismissC2QuickPopup();
+        final QuickPopupMenuPolicy.TelemetrySnapshot snap = buildPopupTelemetrySnapshot();
+
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(12, 8, 12, 8);
+        box.setBackgroundColor(Color.rgb(12, 16, 23));
+
+        TextView header = new TextView(this);
+        header.setTypeface(Typeface.MONOSPACE);
+        header.setTextSize(11.5f);
+        header.setTextColor(Color.rgb(165, 243, 252));
+        header.setPadding(4, 2, 4, 10);
+        header.setText(QuickPopupMenuPolicy.formatTelemetryHeader(snap));
+        box.addView(header);
+
+        String[] labels = QuickPopupMenuPolicy.buildQuickActionLabels(snap);
+        Button firstBtn = null;
+        for (int i = 0; i < labels.length; i++) {
+            final int idx = i;
+            Button btn = new Button(this);
+            btn.setText(labels[i]);
+            btn.setTypeface(Typeface.MONOSPACE);
+            btn.setTextSize(12f);
+            btn.setGravity(Gravity.LEFT | Gravity.CENTER_VERTICAL);
+            btn.setSingleLine(true);
+            btn.setOnClickListener(new View.OnClickListener() {
+                @Override public void onClick(View v) {
+                    executeC2QuickAction(QuickPopupMenuPolicy.actionAt(idx));
+                }
+            });
+            box.addView(btn, new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT));
+            if (i == 0) firstBtn = btn;
+        }
+
+        ScrollView scroll = new ScrollView(this);
+        scroll.addView(box);
+
+        AlertDialog dlg = new AlertDialog.Builder(this)
+                .setTitle("A6000 Hub Quick Menu (C2)")
+                .setView(scroll)
+                .create();
+        dlg.setOnKeyListener(new DialogInterface.OnKeyListener() {
+            @Override public boolean onKey(DialogInterface dialog, int keyCode, KeyEvent event) {
+                if (event != null && event.getAction() == KeyEvent.ACTION_DOWN && event.getRepeatCount() == 0) {
+                    int sc = event.getScanCode();
+                    if (CustomButtonPolicy.isC2ScanCode(sc) || keyCode == KeyEvent.KEYCODE_BACK) {
+                        dismissC2QuickPopup();
+                        return true;
+                    }
+                    if (keyCode == KeyEvent.KEYCODE_MENU || sc == 514) {
+                        dismissC2QuickPopup();
+                        finish();
+                        return true;
+                    }
+                }
+                return false;
+            }
+        });
+        c2QuickDialog = dlg;
+        dlg.show();
+        if (firstBtn != null) firstBtn.requestFocus();
+    }
+
+    private void executeC2QuickAction(QuickPopupMenuPolicy.QuickAction act) {
+        long now = SystemClock.elapsedRealtime();
+        switch (act) {
+            case TOGGLE_LIVE_HOLD:
+                saverPausedByC1 = !saverPausedByC1;
+                eventHistory.record(now, "Live Hold -> " + (saverPausedByC1 ? "ON" : "OFF"));
+                showC2QuickPopupInternal();
+                break;
+            case ENTER_SCREENSAVER:
+                dismissC2QuickPopup();
+                saverPausedByC1 = false;
+                eventHistory.record(now, "Quick Menu -> Screensaver");
+                switchToScreensaver();
+                break;
+            case ENTER_FULL_DIM:
+                dismissC2QuickPopup();
+                saverPausedByC1 = false;
+                eventHistory.record(now, "Quick Menu -> Full Dim");
+                switchToFullDim();
+                break;
+            case TOGGLE_HUD:
+                saverHudEnabled = !saverHudEnabled;
+                if (devStore != null) devStore.putBoolean(ScreensaverPolicy.KEY_HUD_ENABLED, saverHudEnabled);
+                if (saverOverlay != null) saverOverlay.setShowHud(saverHudEnabled);
+                eventHistory.record(now, "Screensaver HUD -> " + (saverHudEnabled ? "ON" : "OFF"));
+                showC2QuickPopupInternal();
+                break;
+            case NEXT_STYLE:
+                configuredSaverStyle = CustomButtonPolicy.nextConcreteStyle(saverStyle);
+                saverStyle = configuredSaverStyle;
+                getSharedPreferences(DeveloperSettingsPolicy.PREFS_NAME, MODE_PRIVATE)
+                        .edit().putString(ScreensaverPolicy.KEY_STYLE, saverStyle.id).commit();
+                if (saverOverlay != null) saverOverlay.setStyle(saverStyle);
+                eventHistory.record(now, "Style -> " + saverStyle.label);
+                showC2QuickPopupInternal();
+                break;
+            case TOGGLE_MOTION_WAKE:
+                motionWakeEnabled = !motionWakeEnabled;
+                if (!motionWakeEnabled) lastMotionDetected = false;
+                if (devStore != null) devStore.putBoolean(KEY_MOTION_WAKE, motionWakeEnabled);
+                eventHistory.record(now, "Motion Wake -> " + (motionWakeEnabled ? "ON" : "OFF"));
+                showC2QuickPopupInternal();
+                break;
+            case TOGGLE_SD_SAVE: {
+                boolean nextSd = !MotionGalleryStore.isSaveEnabled(this);
+                MotionGalleryStore.setSaveEnabled(this, nextSd);
+                eventHistory.record(now, "SD Motion Save -> " + (nextSd ? "ON" : "OFF"));
+                showC2QuickPopupInternal();
+                break;
+            }
+            case SYNC_NTP_NOW:
+                eventHistory.record(now, "Manual NTP sync requested");
+                NtpSyncHelper.syncAsyncIfEnabled(this, true);
+                showBriefBanner("NTP clock sync started in background...");
+                showC2QuickPopupInternal();
+                break;
+            case REFRESH_POPUP:
+                refreshTelemetry();
+                showC2QuickPopupInternal();
+                break;
+            case OPEN_SETTINGS:
+                dismissC2QuickPopup();
+                finish();
+                break;
+            case CLOSE_POPUP:
+            default:
+                dismissC2QuickPopup();
+                break;
+        }
+    }
+
     @Override public boolean dispatchKeyEvent(KeyEvent event) {
         if (event == null) return super.dispatchKeyEvent(event);
         int scan = event.getScanCode();
         int code = event.getKeyCode();
         int action = event.getAction();
+
+        if (CustomButtonPolicy.isC2ScanCode(scan)) {
+            if (action == KeyEvent.ACTION_DOWN && event.getRepeatCount() == 0) {
+                showOrDismissC2QuickPopup();
+            }
+            return true;
+        }
 
         if (CustomButtonPolicy.isC1ScanCode(scan) && c1Action != CustomButtonPolicy.Action.DISABLED) {
             if (action == KeyEvent.ACTION_DOWN && event.getRepeatCount() == 0) {
@@ -517,7 +747,7 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
         if (action == KeyEvent.ACTION_DOWN && event.getRepeatCount() == 0) {
             screenPolicy.onUserActivity(SystemClock.elapsedRealtime());
             if (code == KeyEvent.KEYCODE_BACK || code == KeyEvent.KEYCODE_MENU
-                    || scan == 514 || scan == 595) {
+                    || scan == 514) {
                 finish();
                 return true;
             }
@@ -1084,6 +1314,7 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
             MotionDetectorPolicy.Evaluation ev = motionPolicy.update(grayScratch, MOTION_W, MOTION_H, nowMs);
             lastMotionDetected = ev.frameMoved;
             if (ev.wakeTriggered) {
+                eventHistory.record(nowMs, "Motion wake (#" + motionPolicy.motionEvents() + ")");
                 MotionGalleryStore.saveMotionStill(this, jpeg, System.currentTimeMillis());
                 if (screenPolicy.stage() != ScreensaverPolicy.Stage.ACTIVE) {
                     Log.i(TAG, "Motion wake triggered (ratio=" + ev.changedRatio + ")");
@@ -1130,7 +1361,15 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
         }
 
         long now = SystemClock.elapsedRealtime();
-        int mjpeg = httpServer == null ? 0 : httpServer.mjpegClientCount();
+        PreviewHttpServer srv = httpServer;
+        if (srv != null) {
+            int reqs = srv.totalRequestCount();
+            if (reqs > lastRecordedHttpReqCount) {
+                lastRecordedHttpReqCount = reqs;
+                eventHistory.record(now, srv.formatLastClientSummary(now));
+            }
+        }
+        int mjpeg = srv == null ? 0 : srv.mjpegClientCount();
         float fps = Math.round(frameBus.fps() * 10.0f) / 10.0f;
         String state = frameBus.cameraState();
         String err = frameBus.cameraError();

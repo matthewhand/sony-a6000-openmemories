@@ -8,6 +8,8 @@ final class CustomButtonPolicy {
     static final String KEY_C1_ACTION = "c1_button_action";
     static final int SCAN_CUSTOM1 = 622;
     static final int SCAN_CUSTOM_LEGACY = 588;
+    static final int SCAN_CUSTOM2 = 623;
+    static final int SCAN_DELETE_C2 = 595;
     static final long LAUNCH_TIP_DURATION_MS = 5000L;
 
     enum Action {
@@ -34,15 +36,19 @@ final class CustomButtonPolicy {
 
     static String formatLaunchTip(Action action) {
         Action a = action == null ? Action.TOGGLE_SAVER_DIM : action;
-        String base = "TIP: Press MENU for Settings  |  OK: Screensaver";
+        String base = "TIP: MENU: Settings | C2(?): Quick Menu | OK: Saver";
         if (a == Action.DISABLED || a.shortHint.length() == 0) {
             return base;
         }
-        return base + "  |  C1: " + a.shortHint;
+        return base + " | C1: " + a.shortHint;
     }
 
     static boolean isC1ScanCode(int scanCode) {
         return scanCode == SCAN_CUSTOM1 || scanCode == SCAN_CUSTOM_LEGACY;
+    }
+
+    static boolean isC2ScanCode(int scanCode) {
+        return scanCode == SCAN_CUSTOM2 || scanCode == SCAN_DELETE_C2;
     }
 
     static Action parseAction(String id) {
