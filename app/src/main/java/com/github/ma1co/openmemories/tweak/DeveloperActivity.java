@@ -224,7 +224,20 @@ public class DeveloperActivity extends ItemActivity {
             }
         });
 
-        addSwitch("Auto-start Webcam on boot", new SwitchItem.Adapter() {
+        addSwitch("Turn off LCD backlight in Dim", new SwitchItem.Adapter() {
+            @Override public boolean isAvailable() { return true; }
+            @Override public boolean isEnabled() { return devStore.getBoolean(LivePreviewActivity.KEY_DIM_BACKLIGHT_OFF, true); }
+            @Override public void setEnabled(boolean enabled) {
+                devStore.putBoolean(LivePreviewActivity.KEY_DIM_BACKLIGHT_OFF, enabled);
+            }
+            @Override public String getSummary() {
+                return isEnabled()
+                        ? "Uses Sony DisplayManager (DEVICE_ID_NONE); restores on wake"
+                        : "Black canvas only (backlight stays on)";
+            }
+        });
+
+        addSwitch("Auto-start Webcam on open/boot", new SwitchItem.Adapter() {
             @Override public boolean isAvailable() { return true; }
             @Override public boolean isEnabled() { return devStore.getBoolean(LivePreviewActivity.KEY_BOOT_WEBCAM, true); }
             @Override public void setEnabled(boolean enabled) {
@@ -232,8 +245,8 @@ public class DeveloperActivity extends ItemActivity {
             }
             @Override public String getSummary() {
                 return isEnabled()
-                        ? "Boot recovery launches Webcam (:8088) directly"
-                        : "Boot recovery launches main menu";
+                        ? "Launching app enters Webcam (:8088); MENU returns here"
+                        : "Launching app opens main menu";
             }
         });
 
