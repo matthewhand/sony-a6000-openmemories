@@ -15,10 +15,16 @@ import android.text.format.Formatter;
 import java.util.concurrent.TimeoutException;
 
 public class DeveloperActivity extends ItemActivity {
+    private static final String PREFS_DEV = "developer_prefs";
+    private static final String KEY_KEEP_AWAKE = "keep_awake_apo";
+
     private ConnectivityManager connectivityManager;
     private WifiManager wifiManager;
     private BroadcastReceiver receiver;
     private BaseItem wifiSwitch;
+    private final AutoPowerOffPolicy apoPolicy = new AutoPowerOffPolicy();
+    private final String[] telnetStartCommand = new String[] { "busybox", "telnetd", "-l", "sh" };
+    private String[] adbStartCommand;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -26,6 +32,7 @@ public class DeveloperActivity extends ItemActivity {
 
         connectivityManager = (ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
         wifiManager = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
+        adbStartCommand = new String[] { getApplicationInfo().nativeLibraryDir + "/libadbd.so" };
 
         wifiSwitch = addSwitch("Enable Wifi", new SwitchItem.Adapter() {
             @Override
@@ -41,6 +48,7 @@ public class DeveloperActivity extends ItemActivity {
             @Override
             public void setEnabled(boolean enabled) {
                 setWifiEnabled(enabled);
+                syncAutoPowerOff();
             }
 
             @Override
@@ -73,8 +81,6 @@ public class DeveloperActivity extends ItemActivity {
         });
 
         addSwitch("Enable Telnet", new SwitchItem.Adapter() {
-            private final String[] telnetStartCommand = new String[] { "busybox", "telnetd", "-l", "sh" };
-
             private int getTelnetPid() {
                 return Procfs.findProcess(telnetStartCommand);
             }
@@ -110,6 +116,7 @@ public class DeveloperActivity extends ItemActivity {
                     Condition.waitFor(new Condition.Runnable() {
                         @Override public boolean run() { return isEnabled() == enabled; }
                     }, 500, 2000);
+                    syncAutoPowerOff();
                     Logger.info("TelnetAdapter.setEnabled", "done");
                 } catch (InterruptedException | NativeException | TimeoutException e) {
                     Logger.error("TelnetAdapter.setEnabled", e);
@@ -124,8 +131,6 @@ public class DeveloperActivity extends ItemActivity {
         });
 
         addSwitch("Enable ADB", new SwitchItem.Adapter() {
-            private final String[] adbStartCommand = { getApplicationInfo().nativeLibraryDir + "/libadbd.so" };
-
             private int getAdbPid() {
                 return Procfs.findProcess(adbStartCommand);
             }
@@ -161,6 +166,7 @@ public class DeveloperActivity extends ItemActivity {
                     Condition.waitFor(new Condition.Runnable() {
                         @Override public boolean run() { return isEnabled() == enabled; }
                     }, 500, 2000);
+                    syncAutoPowerOff();
                     Logger.info("AdbAdapter.setEnabled", "done");
                 } catch (InterruptedException | NativeException | TimeoutException e) {
                     Logger.error("AdbAdapter.setEnabled", e);
@@ -174,6 +180,22 @@ public class DeveloperActivity extends ItemActivity {
             }
         });
 
+        addSwitch("Keep camera awake (APO/NO)", new SwitchItem.Adapter() {
+            @Override public boolean isAvailable() { return true; }
+            @Override public boolean isEnabled() { return isKeepAwakePrefEnabled(); }
+            @Override public void setEnabled(boolean enabled) {
+                getSharedPreferences(PREFS_DEV, MODE_PRIVATE).edit().putBoolean(KEY_KEEP_AWAKE, enabled).commit();
+                apoPolicy.reset();
+                syncAutoPowerOff();
+            }
+            @Override public String getSummary() {
+                if (!isKeepAwakePrefEnabled()) return "Normal Sony auto power off";
+                return AutoPowerOffPolicy.MODE_DISABLE.equals(apoPolicy.lastSentMode())
+                        ? "Auto power off inhibited (APO/NO)"
+                        : "Armed (inhibits APO while Wi-Fi/daemons active)";
+            }
+        });
+
         addButton("Wifi settings", new ButtonItem.Adapter() {
             @Override public void click() { onSettingsButtonClicked(); }
         });
@@ -182,13 +204,34 @@ public class DeveloperActivity extends ItemActivity {
             @Override
             public void onReceive(Context context, Intent intent) {
                 wifiSwitch.update();
+                syncAutoPowerOff();
             }
         };
+    }
+
+    private boolean isKeepAwakePrefEnabled() {
+        return getSharedPreferences(PREFS_DEV, MODE_PRIVATE).getBoolean(KEY_KEEP_AWAKE, true);
+    }
+
+    private boolean isAnyNetworkOrDaemonActive() {
+        return isWifiEnabled()
+                || Procfs.findProcess(telnetStartCommand) != -1
+                || Procfs.findProcess(adbStartCommand) != -1;
+    }
+
+    private void syncAutoPowerOff() {
+        String mode = apoPolicy.nextBroadcastMode(isKeepAwakePrefEnabled(), isAnyNetworkOrDaemonActive());
+        if (mode != null) {
+            SonyPowerBridge.applyAutoPowerOffMode(this, mode);
+        }
     }
 
     @Override
     protected void onResume() {
         super.onResume();
+        SonyPowerBridge.notifyAppInfo(this, getComponentName());
+        apoPolicy.reset();
+        syncAutoPowerOff();
 
         IntentFilter f = new IntentFilter();
         f.addAction(WifiManager.WIFI_STATE_CHANGED_ACTION);
