@@ -17,10 +17,13 @@ public class MainActivity extends TabActivity {
         super.onCreate(savedInstanceState);
         getTabHost().requestFocus();
 
-        Thread.setDefaultUncaughtExceptionHandler((thread, exp) -> {
-            Logger.error("UncaughtExceptionHandler", exp);
-            saveLog();
-            System.exit(0);
+        Thread.setDefaultUncaughtExceptionHandler(new Thread.UncaughtExceptionHandler() {
+            @Override
+            public void uncaughtException(Thread thread, Throwable exp) {
+                Logger.error("UncaughtExceptionHandler", exp);
+                saveLog();
+                System.exit(0);
+            }
         });
 
         addTab("info", "Info", android.R.drawable. ic_menu_info_details, InfoActivity.class);

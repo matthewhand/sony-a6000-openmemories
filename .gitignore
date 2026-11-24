@@ -1,5 +1,11 @@
 /.gradle
 /.idea
 /build
+/dist
+/out
 /local.properties
 /*.iml
+*.apk
+*.jks
+*.keystore
+*.log
