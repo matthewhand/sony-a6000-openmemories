@@ -21,6 +21,8 @@ Every feature was built onto pristine upstream `d1acfe8` (`Exit to launcher #246
 | **#19** | #12 | Burn-in-safe Screensaver & Pure-Black Full-Dim mode (`60s idle -> 5m starfield/oscilloscope/HUD -> zero-draw #000000`, `ScreensaverPolicy` + `ScreensaverView`) | Optional / fork feature |
 | **#20** | #13 | On-camera `CameraSequence` LAN MJPEG & snapshot server (`:8088`), async low-priority BT.601 luma motion wake, and Home Assistant core **Android IP Webcam** compatibility (`LivePreviewActivity`, `PreviewHttpServer`, `AndroidIpWebcamProtocol`) | Fork showcase feature |
 | **#21** | #14 | Documentation overhaul & upstream cherry-pick guide (`README.md`) | Repo docs |
+| **#24** | #22 | Automatic RFC 4330 SNTPv4 time sync (`SntpClientPolicy` + `NtpSyncHelper`): updates Linux/Android clock via `Shell.exec` and reflectively invokes Sony `TimeUtil.setCurrentTime` on Sony API V6+ bodies | **High** (especially on API V6+ bodies) |
+| **#25** | #23 | 24/7 NP-FW50 dummy-battery power note + Sony A6000 telephoto SVG dashboard asset (`docs/assets/sony-a6000-telephoto.svg`) | Docs / HAOS asset |
 
 ---
 
@@ -32,7 +34,18 @@ Every feature was built onto pristine upstream `d1acfe8` (`Exit to launcher #246
 - **Keep camera awake (`APO/NO`):** Sends `DAConnectionManagerService.apo` (`APO/NO`) while Wi-Fi, ADB, Telnet, or webcam streaming is active and restores `APO/NORMAL` when turned off.
 - **5-min Wi-Fi watchdog (`OFF-ack`):** Periodically cycles Wi-Fi with observed-OFF acknowledgement and bounded retries; single-arms via `WifiEnabledReceiver`.
 - **Screensaver (`60s -> 5m -> Dim`) & Motion Wake:** After 60 seconds idle, displays a drifting 3D starfield, dual-harmonic RSSI oscilloscope, and gliding telemetry HUD for 5 minutes (15-second linear fade) before entering zero-draw pure black. Any key press, touch, local async luma-difference motion, or `POST /screen/wake` immediately reveals the live image.
+- **Auto NTP time sync:** Automatically queries NTP (UDP/123: LAN gateway → `pool.ntp.org` → `time.cloudflare.com`) once Wi-Fi connects, updating the Linux/Android clock (so Home Assistant `/sensors.json` epoch timestamps and `TWEAKLOG.TXT` logs are accurate instead of `1970-01-01`). On **Sony API V6+** cameras (A6300, A6500, A7 II, RX100M4), it also reflectively invokes Sony `TimeUtil.setCurrentTime(...)` to set the RTOS/EXIF hardware clock. *(Note: On **Sony A6000 / API V4**, `TimeUtil.setCurrentTime` does not exist in firmware, so NTP syncs the Linux/Android clock only and cannot dismiss Sony's pre-boot RTOS date/time prompt after full capacitor drain.)*
 - **Auto boot recovery:** Listens to both `android.intent.action.BOOT_COMPLETED` and Sony's native `com.android.server.DAConnectionManagerService.BootCompleted` (deduplicated once per boot and guarded by a 3-incomplete-start crash-loop breaker).
+
+---
+
+## 24/7 Operation: NP-FW50 Dummy Battery Strongly Recommended
+
+> **Important Sony ILCE-6000 Hardware Limitation:** Unlike newer Sony bodies (A6400/A6600/A7 III+) that support USB Power Delivery while operating, **the Sony A6000 cannot shoot or run PlayMemories apps while powered/charging over micro-USB** (connecting USB triggers Mass Storage / MTP / PC Remote mode or power-off charging).
+
+For unattended 24/7 webcam or Home Assistant operation on the A6000:
+- Use an **NP-FW50 DC coupler ("dummy battery")** — such as the Sony AC-PW20 or a regulated 7.4–8.4 V / USB-C PD dummy battery routed through the rubber cable pass-through flap on the battery door.
+- Continuous dummy-battery power also keeps the camera's internal RTC backup capacitor charged (typically within ~24 hours of continuous power), preventing Sony's power-loss Area/Date/Time prompt during brief power outages.
 
 ---
 
@@ -59,6 +72,17 @@ streams:
   sony_camera: ffmpeg:http://<CAMERA_IP>:8088/liveview.mjpeg#video=h264#hardware
 ```
 To wake the dimmed camera LCD only when Frigate detects a person, call `POST http://<CAMERA_IP>:8088/screen/wake` from a Home Assistant `rest_command` automation.
+
+### HAOS Dashboard Graphic (`sony-a6000-telephoto.svg`)
+A crisp vector icon of the Sony α6000 with an attached telescopic telephoto zoom lens is included at [`docs/assets/sony-a6000-telephoto.svg`](docs/assets/sony-a6000-telephoto.svg). Copy it to your Home Assistant `/config/www/images/sony-a6000-telephoto.svg` folder and reference it in any Lovelace card (e.g., Picture Entity / Mushroom / custom header card):
+
+```yaml
+type: picture-entity
+entity: camera.sony_a6000
+name: Sony α6000
+image: /local/images/sony-a6000-telephoto.svg
+camera_view: live
+```
 
 ---
 
@@ -119,7 +143,7 @@ Sign with Android 2.3-compatible **v1 JAR signing** (`jarsigner -sigalg SHA1with
 
 ## Verification Status
 
-- **Offline verified (11 test suites, 173 assertions):** `ConditionTests`, `AutoPowerOffPolicyTests`, `StaticIpPolicyTests`, `DeveloperSettingsPolicyTests`, `PeriodicWifiPolicyTests`, `BootRecoveryPolicyTests`, `ScreensaverPolicyTests`, `MotionDetectorPolicyTests`, `PreviewFrameBusTests`, `AndroidIpWebcamProtocolTests`, and real loopback socket `PreviewHttpServerTests`.
+- **Offline verified (12 test suites, 183 assertions):** `ConditionTests`, `AutoPowerOffPolicyTests`, `StaticIpPolicyTests`, `DeveloperSettingsPolicyTests`, `PeriodicWifiPolicyTests`, `BootRecoveryPolicyTests`, `ScreensaverPolicyTests`, `MotionDetectorPolicyTests`, `PreviewFrameBusTests`, `AndroidIpWebcamProtocolTests`, real loopback socket `PreviewHttpServerTests`, and real loopback UDP `SntpClientPolicyTests`.
 - **Hardware verified on Sony ILCE-6000 (Android 2.3.7, API V4):**
   - Static IPv4 via `Settings.System` (`WifiStateTracker: Static IP configuration succeeded`, `dhcpcd` stopped).
   - Auto Power Off inhibition (`DAConnectionManagerService-JNI: APO/NO -> call MSS_fakey_stop`).
