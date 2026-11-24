@@ -6,7 +6,7 @@ final class QuickPopupMenuPolicyTests {
     public static void main(String[] args) {
         rssiQualityAndUptimeFormatting();
         boundedHistoryRingBuffer();
-        telemetryHeaderAndQuickActionLabels();
+        compactHeaderCellsAndDetailsView();
         System.out.println("PASS QuickPopupMenuPolicyTests: " + assertions + " assertions");
     }
 
@@ -36,12 +36,13 @@ final class QuickPopupMenuPolicyTests {
         expect(!formatted.contains("ev1") && !formatted.contains("ev2"), "evicted oldest events");
     }
 
-    private static void telemetryHeaderAndQuickActionLabels() {
+    private static void compactHeaderCellsAndDetailsView() {
         QuickPopupMenuPolicy.EventHistory h = new QuickPopupMenuPolicy.EventHistory();
         h.record(8000L, "client GET /liveview.mjpeg");
         QuickPopupMenuPolicy.TelemetrySnapshot snap = new QuickPopupMenuPolicy.TelemetrySnapshot(
                 "192.0.2.10", "StudioNet", -42, true,
                 true, true, "2026-11-23 00:15:00Z",
+                true, "EVF", "LCD/EVF/OFF",
                 "STREAMING", "", "640x0_30fps_memmap", 15.2f, 1240L,
                 2, 1, 84, "192.0.2.50 GET /liveview.mjpeg (2s ago)",
                 98, 7.62f, 29.5f, true, 3661L,
@@ -50,23 +51,49 @@ final class QuickPopupMenuPolicyTests {
                 true, false, 3, "motion",
                 true, "3 files (0.4 MB / 250 MB)", h.formatRecent(10000L));
 
-        String text = QuickPopupMenuPolicy.formatTelemetryHeader(snap);
-        expect(text.contains("[API & CLIENTS]"), "includes API section");
-        expect(text.contains("1 MJPEG stream · 2 active HTTP · 84 total reqs"), "includes client counts");
-        expect(text.contains("192.0.2.10 [STATIC] · SSID: StudioNet"), "includes network section");
-        expect(text.contains("-42 dBm (Excellent)"), "includes RSSI quality");
-        expect(text.contains("98% · 7.62V · 29.5C · APO/NO: ACTIVE"), "includes power & thermal");
-        expect(text.contains("01:01:01 · Stage: ACTIVE [HOLD]"), "includes uptime & hold flag");
-        expect(text.contains("2s ago: client GET /liveview.mjpeg"), "includes recent history");
+        String line1 = QuickPopupMenuPolicy.formatCompactStatusLine1(snap);
+        String line2 = QuickPopupMenuPolicy.formatCompactStatusLine2(snap);
+        expect(line1.contains("192.0.2.10:8088") && line1.contains("Cli:1 (84 req)"), "compact line1 has IP & clients");
+        expect(line2.contains("WiFi -42dBm") && line2.contains("Out:EVF"), "compact line2 has WiFi & output");
 
-        String[] labels = QuickPopupMenuPolicy.buildQuickActionLabels(snap);
-        expect(labels.length == QuickPopupMenuPolicy.actions().length, "label count matches QuickAction enum");
-        expect(labels[0].startsWith("[ON]"), "Live Hold shows [ON]");
-        expect(labels[3].startsWith("[OFF]"), "HUD shows [OFF]");
-        expect(QuickPopupMenuPolicy.actionAt(0) == QuickPopupMenuPolicy.QuickAction.TOGGLE_LIVE_HOLD,
-                "actionAt(0) is TOGGLE_LIVE_HOLD");
-        expect(QuickPopupMenuPolicy.actionAt(999) == QuickPopupMenuPolicy.QuickAction.CLOSE_POPUP,
-                "out of range defaults to CLOSE_POPUP");
+        String details = QuickPopupMenuPolicy.formatTelemetryHeader(snap);
+        expect(details.contains("[API & CLIENTS]") && details.contains("RUNNING"), "details shows server status");
+        expect(details.contains("192.0.2.10 [STATIC] | SSID: StudioNet"), "details shows network");
+        expect(details.contains("-42 dBm (Excellent)"), "details shows RSSI quality");
+        expect(details.contains("98% | 7.62V | 29.5C | APO/NO: ACTIVE"), "details shows power & thermal");
+        expect(details.contains("Output EVF | Stage ACTIVE [HOLD]"), "details shows output & stage");
+        expect(details.contains("01:01:01 | C1: LCD/EVF/OFF"), "details shows uptime & C1");
+        expect(details.contains("2s ago: client GET /liveview.mjpeg"), "details shows history");
+
+        QuickPopupMenuPolicy.QuickCell[] cells = QuickPopupMenuPolicy.buildQuickCells(snap);
+        expect(cells.length == QuickPopupMenuPolicy.actions().length, "cell count matches QuickAction enum");
+        expect(cells[0].action == QuickPopupMenuPolicy.QuickAction.CYCLE_DISPLAY_OUTPUT
+                && cells[0].title.equals("Display: EVF") && cells[0].activeHighlight, "first cell is Display: EVF");
+        expect(cells[1].action == QuickPopupMenuPolicy.QuickAction.TOGGLE_HTTP_SERVER
+                && cells[1].title.equals("Server :8088: ON") && cells[1].activeHighlight, "second cell is Server ON");
+        expect(cells[2].action == QuickPopupMenuPolicy.QuickAction.OPEN_SETTINGS
+                && cells[2].title.contains("Full Settings Menu"), "third cell surfaces Full Settings immediately");
+        expect(cells[4].title.equals("Live Hold: ON") && cells[4].activeHighlight, "Live Hold highlighted when ON");
+        expect(cells[6].title.equals("Debug HUD: OFF") && !cells[6].activeHighlight, "HUD not highlighted when OFF");
+        expect(cells[9].title.equals("C1 Key: LCD/EVF/OFF"), "C1 picker cell shows current action");
+        expect(QuickPopupMenuPolicy.NAV_HINT.contains("UP/DN") && QuickPopupMenuPolicy.NAV_HINT.contains("MENU: Full"),
+                "nav hint tells user arrow keys move and MENU opens full settings");
+
+        QuickPopupMenuPolicy.TelemetrySnapshot stopped = new QuickPopupMenuPolicy.TelemetrySnapshot(
+                "192.0.2.10", "StudioNet", -42, true,
+                true, true, "unsynced",
+                false, "LCD", "Server On/Off",
+                "STREAMING", "", "640x0_30fps_memmap", 15.0f, 100L,
+                0, 0, 0, "none yet",
+                100, 8.0f, 28.0f, true, 12L,
+                "ACTIVE", 60, 300,
+                "Random", "Matrix Rain", false, false,
+                true, false, 0, "start",
+                false, "", "");
+        expect(QuickPopupMenuPolicy.formatCompactStatusLine1(stopped).contains("SERVER :8088 OFF"),
+                "compact header reflects stopped HTTP server");
+        expect(QuickPopupMenuPolicy.buildQuickCells(stopped)[1].title.equals("Server :8088: OFF"),
+                "server cell reflects stopped state");
     }
 
     private static void expect(boolean ok, String msg) {

@@ -7,6 +7,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.InetAddress;
+import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.util.Locale;
@@ -65,13 +66,24 @@ final class PreviewHttpServer {
     private final ControlHooks hooks;
     private final String expectedAuthHeader;
 
+    private static final class LastClient {
+        final String ip;
+        final String method;
+        final String path;
+        final long atMs;
+
+        LastClient(String ip, String method, String path, long atMs) {
+            this.ip = ip;
+            this.method = method;
+            this.path = path;
+            this.atMs = atMs;
+        }
+    }
+
     private final AtomicInteger activeClients = new AtomicInteger(0);
     private final AtomicInteger mjpegClients = new AtomicInteger(0);
     private final AtomicInteger totalRequests = new AtomicInteger(0);
-    private volatile String lastClientIp = "";
-    private volatile String lastClientMethod = "";
-    private volatile String lastClientPath = "";
-    private volatile long lastClientAtMs = -1L;
+    private volatile LastClient lastClient;
     private volatile boolean running;
     private ServerSocket serverSocket;
     private Thread acceptThread;
@@ -96,10 +108,12 @@ final class PreviewHttpServer {
 
     void start() throws IOException {
         if (running) return;
-        ServerSocket ss = bindAddress == null
-                ? new ServerSocket(port, 16)
-                : new ServerSocket(port, 16, bindAddress);
+        ServerSocket ss = new ServerSocket();
         ss.setReuseAddress(true);
+        InetSocketAddress addr = bindAddress == null
+                ? new InetSocketAddress(port)
+                : new InetSocketAddress(bindAddress, port);
+        ss.bind(addr, 16);
         this.serverSocket = ss;
         this.running = true;
         this.acceptThread = new Thread(new Runnable() {
@@ -119,11 +133,10 @@ final class PreviewHttpServer {
     int totalRequestCount() { return totalRequests.get(); }
 
     String formatLastClientSummary(long nowMs) {
-        long at = lastClientAtMs;
-        String ip = lastClientIp;
-        if (at < 0L || ip == null || ip.length() == 0) return "none yet";
-        long ageSec = nowMs >= at ? (nowMs - at) / 1000L : 0L;
-        return ip + " " + lastClientMethod + " " + lastClientPath + " (" + ageSec + "s ago)";
+        LastClient lc = lastClient;
+        if (lc == null || lc.atMs < 0L || lc.ip == null || lc.ip.length() == 0) return "none yet";
+        long ageSec = nowMs >= lc.atMs ? (nowMs - lc.atMs) / 1000L : 0L;
+        return lc.ip + " " + lc.method + " " + lc.path + " (" + ageSec + "s ago)";
     }
 
     void stop() {
@@ -197,22 +210,24 @@ final class PreviewHttpServer {
             String query = q >= 0 ? rawPath.substring(q + 1) : "";
             totalRequests.incrementAndGet();
             InetAddress remoteAddr = socket.getInetAddress();
-            lastClientIp = remoteAddr == null ? "client" : remoteAddr.getHostAddress();
-            lastClientMethod = method;
-            lastClientPath = path;
-            lastClientAtMs = hooks.nowMs();
+            lastClient = new LastClient(
+                    remoteAddr == null ? "client" : remoteAddr.getHostAddress(),
+                    method,
+                    path,
+                    hooks.nowMs());
+
+            boolean isGet = "GET".equals(method);
+            boolean isHead = "HEAD".equals(method);
 
             if (expectedAuthHeader != null) {
                 String auth = findHeader(lines, "authorization");
                 if (auth == null || !constantTimeEquals(expectedAuthHeader, auth.trim())) {
                     writeSimpleResponse(out, 401, "Unauthorized", "text/plain", "Unauthorized\n",
-                            "WWW-Authenticate: Basic realm=\"openmemories-webcam\"\r\n");
+                            "WWW-Authenticate: Basic realm=\"openmemories-webcam\"\r\n", isHead);
                     return;
                 }
             }
 
-            boolean isGet = "GET".equals(method);
-            boolean isHead = "HEAD".equals(method);
             if (isGet || isHead) {
                 if ("/".equals(path) || "/status".equals(path)) {
                     writeSimpleResponse(out, 200, "OK", "application/json", buildStatusJson(hooks.nowMs()), null, isHead);

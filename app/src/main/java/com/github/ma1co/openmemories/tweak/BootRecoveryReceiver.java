@@ -48,9 +48,6 @@ public final class BootRecoveryReceiver extends BroadcastReceiver {
             devStore.putBoolean(ScreensaverPolicy.KEY_HUD_ENABLED, hud);
             Log.i(TAG, "ADB screensaver HUD provision: " + hud);
         }
-        DeveloperSettingsPolicy.recordBooleanIfPersisting(devStore, DeveloperSettingsPolicy.KEY_WANT_STATIC_IP, true);
-        DeveloperSettingsPolicy.recordBooleanIfPersisting(devStore, DeveloperSettingsPolicy.KEY_WANT_WIFI, true);
-        DeveloperSettingsPolicy.recordBooleanIfPersisting(devStore, DeveloperSettingsPolicy.KEY_WANT_ADB, true);
 
         String ip = intent.getStringExtra(LivePreviewActivity.EXTRA_STATIC_IP);
         if (ip == null || ip.trim().length() == 0) return;
@@ -67,6 +64,10 @@ public final class BootRecoveryReceiver extends BroadcastReceiver {
         StaticIpPolicy.Result r = StaticIpPolicy.applyStatic(ipStore, cfg);
         Log.i(TAG, "ADB static IP provision: " + (r.ok ? "OK " : "FAIL ") + r.message);
         if (!r.ok) return;
+
+        DeveloperSettingsPolicy.recordBooleanIfPersisting(devStore, DeveloperSettingsPolicy.KEY_WANT_STATIC_IP, true);
+        DeveloperSettingsPolicy.recordBooleanIfPersisting(devStore, DeveloperSettingsPolicy.KEY_WANT_WIFI, true);
+        DeveloperSettingsPolicy.recordBooleanIfPersisting(devStore, DeveloperSettingsPolicy.KEY_WANT_ADB, true);
 
         final WifiManager wm = (WifiManager) app.getSystemService(Context.WIFI_SERVICE);
         if (wm == null) return;

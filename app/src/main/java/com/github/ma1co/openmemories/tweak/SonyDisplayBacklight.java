@@ -39,6 +39,35 @@ final class SonyDisplayBacklight {
         return policy.isBacklightOff();
     }
 
+    DisplayBacklightPolicy.Output currentOutput() {
+        return policy.currentOutput();
+    }
+
+    boolean switchOutput(Activity activity, DisplayBacklightPolicy.Output target) {
+        DisplayBacklightPolicy.Output resolved = target == null ? DisplayBacklightPolicy.Output.PANEL : target;
+        ensureInit();
+        boolean switched = false;
+        if (displayManager != null && switchOutputMethod != null) {
+            try {
+                switchOutputMethod.invoke(displayManager, resolved.deviceId);
+                switched = true;
+                Log.i(TAG, "Switched Sony DisplayManager output to " + resolved.deviceId);
+            } catch (Throwable t) {
+                Log.w(TAG, "DisplayManager switch to " + resolved.deviceId + " failed: " + t.getClass().getSimpleName());
+            }
+        }
+        if (resolved == DisplayBacklightPolicy.Output.OFF) {
+            setWindowBrightness(activity, 0.01f);
+            policy.markExplicitOutput(DisplayBacklightPolicy.Output.OFF);
+            return switched || activity != null;
+        }
+        setWindowBrightness(activity, WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE);
+        if (switched || resolved == DisplayBacklightPolicy.Output.PANEL) {
+            policy.markExplicitOutput(resolved);
+        }
+        return switched;
+    }
+
     void turnOff(Activity activity, boolean enabled) {
         if (!enabled || policy.isBacklightOff()) return;
         ensureInit();
@@ -78,8 +107,24 @@ final class SonyDisplayBacklight {
         policy.markRestored();
     }
 
+    void restoreToPanel(Activity activity) {
+        String target = policy.planRestoreToPanel();
+        setWindowBrightness(activity, WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE);
+        if (target == null) return;
+
+        if (displayManager != null && switchOutputMethod != null) {
+            try {
+                switchOutputMethod.invoke(displayManager, target);
+                Log.i(TAG, "Restored Sony DisplayManager output to " + target);
+            } catch (Throwable t) {
+                Log.w(TAG, "DisplayManager restoreToPanel failed: " + t.getClass().getSimpleName());
+            }
+        }
+        policy.markRestoredToPanel();
+    }
+
     void release(Activity activity) {
-        restore(activity);
+        restoreToPanel(activity);
         if (displayManager != null && finishMethod != null) {
             try { finishMethod.invoke(displayManager); } catch (Throwable ignored) {}
         }

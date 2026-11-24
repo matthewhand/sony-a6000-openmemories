@@ -35,8 +35,8 @@ All business logic is factored into **pure-Java, dependency-free `*Policy` class
 ## 3. 24/7 Power Management & Sony `DAConnectionManagerService` Hardening (PRs #16, #25, #47, #49)
 
 - **Auto Power Off Inhibition (`AutoPowerOffPolicy`, `SonyPowerBridge`):**
-  - Broadcasts `com.android.server.DAConnectionManagerService.AppInfoReceive` and `com.android.server.DAConnectionManagerService.apo` (`APO/NO`) across `LivePreviewActivity`, `MainActivity`, and `ScreensaverActivity` whenever Keep Awake is enabled.
-  - Prevents `LivePreviewActivity.onPause()` from sending `APO/NORMAL` when navigating into Settings (`MENU`), eliminating unintended 3-minute Sony APO shutdowns (`state = 4` / `ScalarABlackLauncher`).
+  - Broadcasts `com.android.server.DAConnectionManagerService.AppInfoReceive` and `com.android.server.DAConnectionManagerService.apo` (`APO/NO`) unconditionally while `LivePreviewActivity` is active, and preserves `APO/NO` across `MainActivity` and `ScreensaverActivity` whenever Keep Awake is enabled.
+  - Prevents `LivePreviewActivity.onPause()` from sending `APO/NORMAL` when navigating into Settings (`MENU`) with Keep Awake enabled, eliminating unintended 3-minute Sony APO shutdowns (`state = 4` / `ScalarABlackLauncher`).
 - **Remote Exit-Handshake Recovery (`SonyPowerBridge.completeAndroidExitIfStuck`):**
   - Reflectively invokes `android.app.DAConnectionManager.finishComp()` via ADB `FINISH_COMP` broadcast if an `adb install -r` ever interrupts a `ScalarABlackLauncher` exit transition — recovering normal camera power/button control remotely without pulling the battery.
 - **24/7 Power Hardware Guidance:** Documented why an **NP-FW50 DC coupler (dummy battery)** is required on ILCE-6000 (micro-USB disables PlayMemories apps) and keeps the internal RTC backup capacitor charged.
@@ -83,22 +83,30 @@ All business logic is factored into **pure-Java, dependency-free `*Policy` class
 
 ---
 
-## 7. Physical Camera Controls: `C1`, `C2` Quick Menu & On-Launch Tip (PRs #40, #47, #49, #51)
+## 7. Physical Camera Controls: `C1`, Fullscreen `C2` Quick Menu & On-Launch Tip (PRs #40, #47, #49, #51, #53, #55)
 
-- **On-Launch Tip Banner:** Displays a 5-second non-intrusive bottom tip on Webcam launch (`TIP: MENU: Settings | C2(?): Quick Menu | OK: Saver | C1: Pause Saver`).
-- **Configurable `C1` Button (`CustomButtonPolicy`):** Binds Sony `C1` (`622` / `588`) to 7 selectable actions (default: **Pause/Resume Screensaver & Dim Live Hold**).
-- **`C2` (`? / Delete`) In-Activity Quick Menu & Live Dashboard (`QuickPopupMenuPolicy`):**
-  - Pressing `C2` (`595` / `623`) opens a scrollable live dashboard and 11-item quick-toggle menu directly over `LivePreviewActivity` **without pausing the camera or dropping `:8088` MJPEG clients** (and holds the screensaver idle timer paused while open):
-    - **`[API & CLIENTS]`:** Endpoint, pipeline state, FPS, frame count, active MJPEG streamers, active HTTP clients, total requests served, last client IP/path/age.
-    - **`[WI-FI & DAEMONS]`:** IPv4 + `[STATIC]`/`[DHCP]`, SSID, RSSI dBm + quality label, `ADB :5555`, `Telnet :23`, NTP UTC clock.
-    - **`[POWER & DISPLAY]`:** Battery `%`, voltage `V`, temp `C`, `APO/NO` state, session uptime, display stage/style/timing/HUD.
-    - **`[HISTORY & MOTION]`:** Motion status/wakes/last wake reason, SD card gallery usage, and a 5-entry rolling recent-activity log.
-    - **11 Quick Toggles/Actions:** Live Hold toggle, Enter Screensaver Now, Turn Off LCD Backlight Now, Debug HUD toggle, Next Style, Motion Wake toggle, SD Save toggle, live async NTP Sync Now, Refresh Telemetry, Open Full Settings, and Close.
+- **Large-Font Stream Overlay & Auto-Boot `MENU` Navigation:** Displays a large `18sp` bold 2-line live status overlay (`IP:8088 fps Cli` + `state | motion | SAVER | C2:Menu`) and a `17sp` bold 5-second on-launch tip (`MENU: Full Settings | C2(?): Quick Menu` / `OK: Screensaver | C1: Pause Saver`). Pressing `MENU` (or choosing **Full Settings Menu** in `C2`) reliably opens `MainActivity` on the Developer tab even when `LivePreviewActivity` was auto-launched directly at boot (`isTaskRoot()` + `EXTRA_SKIP_AUTO_WEBCAM`).
+- **Configurable `C1` Button Dropdown (`CustomButtonPolicy`):** Binds Sony `C1` (`622` / `588`) to 9 selectable actions configurable in both **Developer Settings** and directly inside the **`C2` Quick Menu**:
+  1. **Toggle Screensaver Hold (Default)**
+  2. **Cycle Output: LCD / EVF / OFF** (cycles Sony `DisplayManager` `DEVICE_ID_PANEL` → `DEVICE_ID_FINDER` viewfinder → `DEVICE_ID_NONE` off!)
+  3. **Toggle Screen On / Off**
+  4. **Start / Stop Server (:8088)** (live on-demand HTTP server toggle with pre-bind `SO_REUSEADDR`)
+  5. **Cycle Live → Saver → Dim**
+  6. **Toggle Debug HUD**
+  7. **Toggle Motion Wake**
+  8. **Next Screensaver Style**
+  9. **Disabled (Ignore C1)**
+- **`C2` (`? / Delete`) Large-Font Fullscreen Quick Menu (`QuickPopupMenuPolicy`):**
+  - Pressing `C2` (`595` / `623`) opens a high-contrast fullscreen dark menu over `LivePreviewActivity` **without pausing the camera or dropping `:8088` MJPEG clients**:
+    - **Compact pinned header:** Navigation hint (`UP/DN Move | OK Select | C2 Close`) + 2 crisp live status lines (endpoint/FPS/clients, Wi-Fi/battery/output).
+    - **~2.5 chunky cells visible at once:** Large `23sp` bold title + `15sp` subtitle buttons (`132px` min height, vivid cyan D-pad focus border) with in-place refresh so focus and scroll position never jump while toggling.
+    - **12 quick actions:** `Display: LCD/EVF/OFF`, `Server :8088: ON/OFF`, `Screensaver Now`, `Live Hold`, `Next Style`, `Debug HUD`, `Motion Wake`, `SD Motion Save`, `C1 Key` picker, `Sync Clock (NTP)`, **`Details & History`** (dedicated fullscreen scrollable view with full API/clients/SSID/RSSI/ADB/Telnet/battery/thermal/uptime + 5-event rolling log), and `Hub Settings`.
+- **Sony ILCE-6000 Diadem Custom Key Note:** Verified in `ScalarALauncher.odex` and `nfc_shooting.xml` that ILCE-6000's native `ScalarACustomKeyRegister` only supports `custom_key_NFC_Shooting` (One-touch NFC tap); for 1-press Diadem access without NFC, map a Diadem custom key to **Application List** (or rely on `Auto boot recovery`).
 
 ---
 
-## 8. Automatic RFC 4330 SNTPv4 Time Sync (PRs #24, #51)
+## 8. Automatic RFC 4330 SNTPv4 Time Sync (PRs #24, #51, #53)
 
-- Pure-Java UDP/123 SNTPv4 client (`SntpClientPolicy`, `NtpSyncHelper`) trying `LAN gateway -> pool.ntp.org -> time.cloudflare.com`.
-- Protected by an `AtomicBoolean` in-flight guard and 15-second auto-retry cooldown so rapid Wi-Fi state broadcasts never spawn duplicate NTP threads.
-- Updates Linux/Android time via injection-safe `busybox date -u -s "YYYY-MM-DD HH:MM:SS"` and reflectively invokes Sony `com.sony.scalar.sysutil.TimeUtil.setCurrentTime` on Sony API V6+ cameras.
+- Pure-Java UDP/123 SNTPv4 client (`SntpClientPolicy`, `NtpSyncHelper`) trying `LAN gateway (1s timeout) -> pool.ntp.org (3s) -> time.cloudflare.com (3s)`.
+- Checks active Wi-Fi IPv4 before consuming the 15-second retry cooldown (`AtomicBoolean` in-flight guard), retries cleanly once Wi-Fi connects until synced, and logs sync status to `logcat` (`OpenMemoriesNtp`).
+- Updates Linux/Android time via injection-safe `busybox date -u -s "YYYY-MM-DD HH:MM:SS"` (verified live on ILCE-6000 updating `1970 -> 2026`) and reflectively invokes Sony `com.sony.scalar.sysutil.TimeUtil.setCurrentTime` on Sony API V6+ cameras.

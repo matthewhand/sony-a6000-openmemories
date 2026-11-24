@@ -13,9 +13,11 @@ final class CustomButtonPolicy {
     static final long LAUNCH_TIP_DURATION_MS = 5000L;
 
     enum Action {
-        TOGGLE_SAVER_DIM("toggle_saver_dim", "Toggle Screensaver & Dim (Live Hold)", "Pause Saver"),
+        TOGGLE_SAVER_DIM("toggle_saver_dim", "Toggle Screensaver Hold (Default)", "Pause Saver"),
+        CYCLE_DISPLAY_OUTPUT("cycle_display_output", "Cycle Output: LCD / EVF / OFF", "LCD/EVF/OFF"),
+        TOGGLE_DIM_NOW("toggle_dim_now", "Toggle Screen On / Off", "Screen On/Off"),
+        TOGGLE_HTTP_SERVER("toggle_http_server", "Start / Stop Server (:8088)", "Server On/Off"),
         CYCLE_STAGE("cycle_stage", "Cycle Live -> Saver -> Dim", "Cycle Stage"),
-        TOGGLE_DIM_NOW("toggle_dim_now", "Toggle LCD Backlight Off Now", "LCD Off"),
         TOGGLE_HUD("toggle_hud", "Toggle Debug HUD", "Toggle HUD"),
         TOGGLE_MOTION("toggle_motion", "Toggle Motion Wake", "Motion Wake"),
         NEXT_STYLE("next_style", "Next Screensaver Style", "Next Style"),
@@ -36,11 +38,11 @@ final class CustomButtonPolicy {
 
     static String formatLaunchTip(Action action) {
         Action a = action == null ? Action.TOGGLE_SAVER_DIM : action;
-        String base = "TIP: MENU: Settings | C2(?): Quick Menu | OK: Saver";
+        String line1 = "MENU: Full Settings  |  C2(?): Quick Menu";
         if (a == Action.DISABLED || a.shortHint.length() == 0) {
-            return base;
+            return line1 + "\nOK: Screensaver";
         }
-        return base + " | C1: " + a.shortHint;
+        return line1 + "\nOK: Screensaver  |  C1: " + a.shortHint;
     }
 
     static boolean isC1ScanCode(int scanCode) {

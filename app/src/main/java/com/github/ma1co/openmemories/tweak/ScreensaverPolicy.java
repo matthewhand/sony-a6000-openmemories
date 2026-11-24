@@ -47,10 +47,10 @@ final class ScreensaverPolicy {
             Style.CLOCK, Style.BOUNCER, Style.MINIMAL
     };
 
-    private Stage stage = Stage.ACTIVE;
+    private volatile Stage stage = Stage.ACTIVE;
     private long stageStartMs = -1L;
     private long lastNowMs = -1L;
-    private String lastWakeReason = "init";
+    private volatile String lastWakeReason = "init";
 
     Stage stage() { return stage; }
     String lastWakeReason() { return lastWakeReason; }
@@ -93,7 +93,7 @@ final class ScreensaverPolicy {
         long mixed = seed ^ (seed >>> 33);
         mixed *= 0xff51afd7ed558ccdL;
         mixed ^= (mixed >>> 33);
-        int idx = (int) (Math.abs(mixed) % CONCRETE_STYLES.length);
+        int idx = (int) ((mixed & Long.MAX_VALUE) % CONCRETE_STYLES.length);
         return CONCRETE_STYLES[idx];
     }
 

@@ -15,12 +15,36 @@ import java.util.TimeZone;
 final class SntpClientPolicy {
     static final int NTP_PORT = 123;
     static final int PACKET_SIZE = 48;
+    static final int LAN_TIMEOUT_MS = 1000;
+    static final int WAN_TIMEOUT_MS = 3000;
     static final long OFFSET_1900_TO_1970 = 2208988800L;
     static final long MIN_VALID_EPOCH_MS = 1577836800000L; // 2020-01-01T00:00:00Z
     static final String DEFAULT_NTP_HOST = "pool.ntp.org";
     static final String FALLBACK_NTP_HOST = "time.cloudflare.com";
 
     private SntpClientPolicy() {}
+
+    /**
+     * Use a shorter timeout for private/local IPv4 gateways (which answer in <5ms if serving NTP
+     * or silently drop UDP/123) so fallback to public NTP pools completes quickly.
+     */
+    static int timeoutForHostMs(String host) {
+        if (host == null) return WAN_TIMEOUT_MS;
+        String h = host.trim();
+        if (h.startsWith("10.") || h.startsWith("192.168.") || h.startsWith("169.254.") || h.startsWith("127.")) {
+            return LAN_TIMEOUT_MS;
+        }
+        if (h.startsWith("172.")) {
+            int dot = h.indexOf('.', 4);
+            if (dot > 4) {
+                try {
+                    int second = Integer.parseInt(h.substring(4, dot));
+                    if (second >= 16 && second <= 31) return LAN_TIMEOUT_MS;
+                } catch (NumberFormatException ignored) {}
+            }
+        }
+        return WAN_TIMEOUT_MS;
+    }
 
     static long queryNtpServer(String host, int port, int timeoutMs) throws IOException {
         DatagramSocket socket = null;

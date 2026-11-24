@@ -22,20 +22,25 @@ final class CustomButtonPolicyTests {
                 "default C1 action is toggle screensaver & dim");
         expect(CustomButtonPolicy.parseAction("bogus") == CustomButtonPolicy.Action.TOGGLE_SAVER_DIM,
                 "unknown falls back to default");
+        expect(CustomButtonPolicy.parseAction("cycle_display_output") == CustomButtonPolicy.Action.CYCLE_DISPLAY_OUTPUT,
+                "parses cycle_display_output");
+        expect(CustomButtonPolicy.parseAction("toggle_http_server") == CustomButtonPolicy.Action.TOGGLE_HTTP_SERVER,
+                "parses toggle_http_server");
         expect(CustomButtonPolicy.parseAction("toggle_hud") == CustomButtonPolicy.Action.TOGGLE_HUD,
                 "parses toggle_hud");
         expect(CustomButtonPolicy.parseAction("disabled") == CustomButtonPolicy.Action.DISABLED,
                 "parses disabled");
         expect(CustomButtonPolicy.labels().length == CustomButtonPolicy.Action.values().length,
                 "labels length matches enum");
-        expect(CustomButtonPolicy.indexOf(CustomButtonPolicy.Action.CYCLE_STAGE) == 1, "indexOf cycle_stage");
+        expect(CustomButtonPolicy.indexOf(CustomButtonPolicy.Action.CYCLE_DISPLAY_OUTPUT) == 1,
+                "indexOf cycle_display_output");
 
         String tipDefault = CustomButtonPolicy.formatLaunchTip(CustomButtonPolicy.Action.TOGGLE_SAVER_DIM);
-        expect(tipDefault.contains("MENU: Settings") && tipDefault.contains("C2(?): Quick Menu")
+        expect(tipDefault.contains("MENU: Full Settings") && tipDefault.contains("C2(?): Quick Menu")
                 && tipDefault.contains("C1: Pause Saver"),
                 "default launch tip shows MENU, C2, OK, and C1 hint");
         String tipDisabled = CustomButtonPolicy.formatLaunchTip(CustomButtonPolicy.Action.DISABLED);
-        expect(tipDisabled.contains("MENU: Settings") && tipDisabled.contains("C2(?): Quick Menu")
+        expect(tipDisabled.contains("MENU: Full Settings") && tipDisabled.contains("C2(?): Quick Menu")
                 && !tipDisabled.contains("C1:"),
                 "disabled C1 omits C1 segment from launch tip");
     }
