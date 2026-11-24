@@ -27,6 +27,7 @@ import android.view.SurfaceView;
 import android.view.View;
 import android.view.WindowManager;
 import android.widget.FrameLayout;
+import android.widget.ImageView;
 import android.widget.TextView;
 
 import java.io.IOException;
@@ -71,8 +72,12 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
 
     private AndroidDeveloperSettingsStore devStore;
     private SurfaceView surfaceView;
+    private ImageView motionStillView;
+    private TextView motionStillBanner;
     private TextView statusStrip;
     private ScreensaverView saverOverlay;
+    private Bitmap activeMotionBitmap;
+    private long motionStillUntilMs;
     private PreviewHttpServer httpServer;
     private BroadcastReceiver batteryReceiver;
 
@@ -146,6 +151,9 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
             if (prev != ScreensaverPolicy.Stage.SCREENSAVER && stage == ScreensaverPolicy.Stage.SCREENSAVER) {
                 saverEnteredAtMs = now;
             }
+            if (motionStillUntilMs > 0L && now >= motionStillUntilMs) {
+                clearMotionStillOverlay();
+            }
             applyStageVisuals(stage, now);
             long nextDelay = (stage == ScreensaverPolicy.Stage.SCREENSAVER) ? UI_TICK_MS : 500L;
             uiHandler.postDelayed(this, nextDelay);
@@ -172,6 +180,25 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
         surfaceView.getHolder().setType(SurfaceHolder.SURFACE_TYPE_PUSH_BUFFERS);
         root.addView(surfaceView, new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+
+        motionStillView = new ImageView(this);
+        motionStillView.setBackgroundColor(Color.BLACK);
+        motionStillView.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        motionStillView.setVisibility(View.GONE);
+        root.addView(motionStillView, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+
+        motionStillBanner = new TextView(this);
+        motionStillBanner.setTypeface(Typeface.MONOSPACE);
+        motionStillBanner.setTextSize(13f);
+        motionStillBanner.setTextColor(Color.rgb(74, 222, 128));
+        motionStillBanner.setBackgroundColor(Color.argb(175, 0, 0, 0));
+        motionStillBanner.setPadding(10, 6, 10, 6);
+        motionStillBanner.setVisibility(View.GONE);
+        FrameLayout.LayoutParams bannerLp = new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT);
+        bannerLp.gravity = Gravity.BOTTOM;
+        root.addView(motionStillBanner, bannerLp);
 
         statusStrip = new TextView(this);
         statusStrip.setTypeface(Typeface.MONOSPACE);
@@ -237,6 +264,7 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
     @Override protected void onPause() {
         running = false;
         uiHandler.removeCallbacksAndMessages(null);
+        clearMotionStillOverlay();
         displayBacklight.restore(this);
         frameBus.close();
         stopHttpServer();
@@ -324,7 +352,47 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
         }
     }
 
+    private void clearMotionStillOverlay() {
+        motionStillUntilMs = 0L;
+        if (motionStillView != null) {
+            motionStillView.setVisibility(View.GONE);
+            motionStillView.setImageDrawable(null);
+        }
+        if (motionStillBanner != null) {
+            motionStillBanner.setVisibility(View.GONE);
+        }
+        Bitmap old = activeMotionBitmap;
+        activeMotionBitmap = null;
+        if (old != null && !old.isRecycled()) {
+            old.recycle();
+        }
+    }
+
+    private void wakeWithMotionStill(byte[] jpeg) {
+        displayBacklight.restore(this);
+        long now = SystemClock.elapsedRealtime();
+        screenPolicy.wake(now, "motion");
+        saverOverlay.setVisibility(View.GONE);
+        statusStrip.setVisibility(View.VISIBLE);
+        clearMotionStillOverlay();
+        if (jpeg != null && jpeg.length >= 4) {
+            try {
+                Bitmap decoded = BitmapFactory.decodeByteArray(jpeg, 0, jpeg.length);
+                if (decoded != null) {
+                    activeMotionBitmap = decoded;
+                    motionStillView.setImageBitmap(decoded);
+                    motionStillView.setVisibility(View.VISIBLE);
+                    motionStillBanner.setText("MOTION CAPTURED — returning to live view...");
+                    motionStillBanner.setVisibility(View.VISIBLE);
+                    motionStillUntilMs = now + MotionStoragePolicy.MOTION_STILL_PREVIEW_MS;
+                }
+            } catch (Throwable ignored) {}
+        }
+        refreshTelemetry();
+    }
+
     private void wakeToLive(String reason) {
+        clearMotionStillOverlay();
         displayBacklight.restore(this);
         screenPolicy.wake(SystemClock.elapsedRealtime(), reason);
         saverOverlay.setVisibility(View.GONE);
@@ -705,11 +773,15 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
             MotionDetectorPolicy.downsampleArgbToGray(srcPixels, w, h, grayScratch, MOTION_W, MOTION_H);
             MotionDetectorPolicy.Evaluation ev = motionPolicy.update(grayScratch, MOTION_W, MOTION_H, nowMs);
             lastMotionDetected = ev.frameMoved;
-            if (ev.wakeTriggered && screenPolicy.stage() != ScreensaverPolicy.Stage.ACTIVE) {
-                Log.i(TAG, "Motion wake triggered (ratio=" + ev.changedRatio + ")");
-                uiHandler.post(new Runnable() {
-                    @Override public void run() { wakeToLive("motion"); }
-                });
+            if (ev.wakeTriggered) {
+                MotionGalleryStore.saveMotionStill(this, jpeg, System.currentTimeMillis());
+                if (screenPolicy.stage() != ScreensaverPolicy.Stage.ACTIVE) {
+                    Log.i(TAG, "Motion wake triggered (ratio=" + ev.changedRatio + ")");
+                    final byte[] stillCopy = jpeg;
+                    uiHandler.post(new Runnable() {
+                        @Override public void run() { wakeWithMotionStill(stillCopy); }
+                    });
+                }
             }
         } catch (Throwable ignored) {
         } finally {
