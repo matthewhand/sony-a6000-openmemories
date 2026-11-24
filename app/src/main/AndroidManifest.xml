@@ -25,6 +25,10 @@
         <activity android:name=".RegionActivity" android:theme="@style/BaseTheme" />
         <activity android:name=".ProtectionActivity" android:theme="@style/BaseTheme" />
         <activity android:name=".DeveloperActivity" android:theme="@style/BaseTheme" />
+        <activity android:name=".ScreensaverActivity"
+                  android:exported="false"
+                  android:launchMode="singleTop"
+                  android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen" />
 
         <receiver android:name=".BootRecoveryReceiver" android:exported="true">
             <intent-filter>

@@ -193,6 +193,25 @@ public class DeveloperActivity extends ItemActivity {
             }
         });
 
+        addSwitch("Screensaver (60s -> 5m -> Dim)", new SwitchItem.Adapter() {
+            @Override public boolean isAvailable() { return true; }
+            @Override public boolean isEnabled() { return devStore.getBoolean(MainActivity.KEY_SAVER_ENABLED, true); }
+            @Override public void setEnabled(boolean enabled) {
+                devStore.putBoolean(MainActivity.KEY_SAVER_ENABLED, enabled);
+            }
+            @Override public String getSummary() {
+                return isEnabled()
+                        ? "Starfield + Oscilloscope + HUD after 60s, full-dim at 5m"
+                        : "Screensaver disabled";
+            }
+        });
+
+        addButton("Launch Screensaver Now", new ButtonItem.Adapter() {
+            @Override public void click() {
+                startActivity(new Intent(DeveloperActivity.this, ScreensaverActivity.class));
+            }
+        });
+
         addSwitch("Keep camera awake (APO/NO)", new SwitchItem.Adapter() {
             @Override public boolean isAvailable() { return true; }
             @Override public boolean isEnabled() { return isKeepAwakePrefEnabled(); }
