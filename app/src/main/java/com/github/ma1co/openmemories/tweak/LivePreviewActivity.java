@@ -94,6 +94,9 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
     private boolean previewStarted;
     private boolean sequenceStarted;
     private String activePresetName = "";
+    private long lastCameraStopElapsedMs;
+    private int cameraRetryCount;
+    private boolean cameraStartPending;
 
     private volatile boolean running;
     private volatile boolean captureRunning;
@@ -119,7 +122,7 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
     private int saverDimSec = ScreensaverPolicy.DEFAULT_DIM_SEC;
     private ScreensaverPolicy.Style configuredSaverStyle = ScreensaverPolicy.Style.RANDOM;
     private ScreensaverPolicy.Style saverStyle = ScreensaverPolicy.Style.MATRIX;
-    private boolean saverHudEnabled = true;
+    private boolean saverHudEnabled = ScreensaverPolicy.DEFAULT_HUD_ENABLED;
     private boolean dimBacklightOffEnabled = true;
     private boolean saverPausedByC1;
     private CustomButtonPolicy.Action c1Action = CustomButtonPolicy.Action.TOGGLE_SAVER_DIM;
@@ -140,13 +143,13 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
         @Override public float batteryTempCelsius() { return cachedBatteryTemp; }
         @Override public float batteryVoltageVolts() { return cachedBatteryVoltage; }
         @Override public void wakeScreen(final String reason) {
-            uiHandler.post(new Runnable() { @Override public void run() { wakeToLive(reason); } });
+            uiHandler.post(new Runnable() { @Override public void run() { if (running) wakeToLive(reason); } });
         }
         @Override public void enterScreensaver() {
-            uiHandler.post(new Runnable() { @Override public void run() { switchToScreensaver(); } });
+            uiHandler.post(new Runnable() { @Override public void run() { if (running) switchToScreensaver(); } });
         }
         @Override public void enterFullDim() {
-            uiHandler.post(new Runnable() { @Override public void run() { switchToFullDim(); } });
+            uiHandler.post(new Runnable() { @Override public void run() { if (running) switchToFullDim(); } });
         }
         @Override public void setMotionDetectEnabled(boolean enabled) {
             motionWakeEnabled = enabled;
@@ -191,8 +194,15 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
         }
     };
 
+    private final Runnable startCameraPipelineTask = new Runnable() {
+        @Override public void run() {
+            startCameraPipelineIfReady();
+        }
+    };
+
     @Override protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        BootRecoveryPolicy.SHARED.markUiOpened();
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         devStore = new AndroidDeveloperSettingsStore(this);
 
@@ -251,6 +261,13 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
 
     @Override protected void onResume() {
         super.onResume();
+        BootRecoveryPolicy.SHARED.onUiResumed();
+        uiHandler.removeCallbacks(startCameraPipelineTask);
+        uiHandler.removeCallbacks(uiTick);
+        uiHandler.removeCallbacks(telemetryTick);
+        cameraRetryCount = 0;
+        cameraStartPending = false;
+
         android.content.SharedPreferences prefs = getSharedPreferences(DeveloperSettingsPolicy.PREFS_NAME, MODE_PRIVATE);
         saverDelaySec = ScreensaverPolicy.clampDelaySec(
                 prefs.getInt(ScreensaverPolicy.KEY_DELAY_SEC, ScreensaverPolicy.DEFAULT_DELAY_SEC));
@@ -259,7 +276,7 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
         configuredSaverStyle = ScreensaverPolicy.parseStyle(
                 prefs.getString(ScreensaverPolicy.KEY_STYLE, ScreensaverPolicy.Style.RANDOM.id));
         selectActiveSaverStyle(SystemClock.elapsedRealtime());
-        saverHudEnabled = prefs.getBoolean(ScreensaverPolicy.KEY_HUD_ENABLED, true);
+        saverHudEnabled = prefs.getBoolean(ScreensaverPolicy.KEY_HUD_ENABLED, ScreensaverPolicy.DEFAULT_HUD_ENABLED);
         motionWakeEnabled = devStore.getBoolean(KEY_MOTION_WAKE, true);
         dimBacklightOffEnabled = devStore.getBoolean(KEY_DIM_BACKLIGHT_OFF, true);
         c1Action = CustomButtonPolicy.parseAction(
@@ -282,23 +299,32 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
         statusStrip.setVisibility(View.VISIBLE);
 
         startHttpServer();
-        bootstrapPersistedTogglesIfEmpty();
+        reconcileNetworkAndBootstrapOnResume();
         NtpSyncHelper.syncAsyncIfEnabled(this, false);
-        openCameraOnMainThread();
         surfaceView.getHolder().addCallback(this);
-        if (surfaceReady) {
-            startPreviewAndSequenceOnMainThread(surfaceView.getHolder());
+        long cooldown = CameraRetryPolicy.reopenCooldownMs(
+                SystemClock.elapsedRealtime(), lastCameraStopElapsedMs);
+        if (cooldown > 0L) {
+            cameraStartPending = true;
+            frameBus.setCameraState("WAITING_OVERLAY", "cooldown " + cooldown + "ms", "");
+            uiHandler.postDelayed(startCameraPipelineTask, cooldown);
+        } else {
+            startCameraPipelineIfReady();
         }
 
         refreshTelemetry();
-        uiHandler.removeCallbacksAndMessages(null);
         uiHandler.post(uiTick);
         uiHandler.postDelayed(telemetryTick, TELEMETRY_MS);
     }
 
     @Override protected void onPause() {
         running = false;
-        uiHandler.removeCallbacksAndMessages(null);
+        BootRecoveryPolicy.SHARED.onUiPaused();
+        cameraStartPending = false;
+        cameraRetryCount = 0;
+        uiHandler.removeCallbacks(startCameraPipelineTask);
+        uiHandler.removeCallbacks(uiTick);
+        uiHandler.removeCallbacks(telemetryTick);
         clearMotionStillOverlay();
         saverOverlay.clearGalleryBitmap();
         displayBacklight.restore(this);
@@ -318,7 +344,12 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
 
     @Override public void surfaceCreated(SurfaceHolder holder) {
         surfaceReady = true;
-        if (running) startPreviewAndSequenceOnMainThread(holder);
+        if (!running) return;
+        if (cameraEx != null && normalCamera != null && cameraSequence == null) {
+            startPreviewAndSequenceOnMainThread(holder);
+        } else if (cameraEx == null && !cameraStartPending) {
+            startCameraPipelineIfReady();
+        }
     }
 
     @Override public void surfaceChanged(SurfaceHolder holder, int format, int width, int height) {}
@@ -531,6 +562,7 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
     }
 
     private void wakeWithMotionStill(byte[] jpeg) {
+        if (!running) return;
         displayBacklight.restore(this);
         long now = SystemClock.elapsedRealtime();
         screenPolicy.wake(now, "motion");
@@ -658,7 +690,7 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
         t.start();
     }
 
-    private void bootstrapPersistedTogglesIfEmpty() {
+    private void reconcileNetworkAndBootstrapOnResume() {
         try {
             WifiManager wm = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
             boolean wifiOn = wm != null && (wm.getWifiState() == WifiManager.WIFI_STATE_ENABLED
@@ -672,13 +704,24 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
                     ssid = DeveloperSettingsPolicy.normalizeSsid(info.getSSID());
                 }
             }
-            boolean staticOn = StaticIpPolicy.isStaticEnabled(new AndroidStaticIpStore(this));
+            AndroidStaticIpStore ipStore = new AndroidStaticIpStore(this);
+            boolean staticOn = StaticIpPolicy.isStaticEnabled(ipStore);
             String adbBin = getApplicationInfo().nativeLibraryDir + "/libadbd.so";
             boolean adbRunning = Procfs.findProcess(new String[] { adbBin }) != -1;
             boolean telnetRunning = Procfs.findProcess(new String[] { "busybox", "telnetd", "-l", "sh" }) != -1;
-            DeveloperSettingsPolicy.bootstrapSnapshotIfEmpty(
-                    devStore,
-                    new DeveloperSettingsPolicy.RuntimeState(wifiOn, connected, ssid, staticOn, adbRunning, telnetRunning));
+            DeveloperSettingsPolicy.RuntimeState runtime = new DeveloperSettingsPolicy.RuntimeState(
+                    wifiOn, connected, ssid, staticOn, adbRunning, telnetRunning);
+            DeveloperSettingsPolicy.bootstrapSnapshotIfEmpty(devStore, runtime);
+
+            DeveloperSettingsPolicy.Snapshot desired = DeveloperSettingsPolicy.readAndHealForNetwork(devStore, staticOn);
+            DeveloperSettingsPolicy.ReconcilePlan plan = DeveloperSettingsPolicy.planRestore(desired, runtime);
+            if (plan.applyStaticIp) {
+                StaticIpPolicy.Config saved = StaticIpPolicy.readSavedConfig(ipStore);
+                if (saved != null) StaticIpPolicy.applyStatic(ipStore, saved);
+            }
+            if (plan.enableWifi && wm != null) {
+                wm.setWifiEnabled(true);
+            }
         } catch (Throwable ignored) {}
     }
 
@@ -701,9 +744,39 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
         if (server != null) server.stop();
     }
 
-    private void openCameraOnMainThread() {
+    private void startCameraPipelineIfReady() {
+        cameraStartPending = false;
+        if (!running) return;
+        if (!openCameraOnMainThread()) return;
+        if (surfaceReady) {
+            startPreviewAndSequenceOnMainThread(surfaceView.getHolder());
+        }
+    }
+
+    private void handleCameraPipelineFailure(String stage, Throwable cause) {
+        String msg = cause.getClass().getSimpleName() + ": " + String.valueOf(cause.getMessage());
+        Log.e(TAG, stage + " error: " + msg, cause);
+        stopCameraPipelineOnMainThread();
+        long delayMs = CameraRetryPolicy.retryDelayMs(cameraRetryCount);
+        if (running && delayMs > 0L) {
+            cameraRetryCount++;
+            Log.w(TAG, stage + " scheduling retry " + cameraRetryCount + "/" + CameraRetryPolicy.MAX_RETRIES
+                    + " in " + delayMs + "ms");
+            frameBus.setCameraState("RETRYING",
+                    "retry " + cameraRetryCount + "/" + CameraRetryPolicy.MAX_RETRIES + ": " + msg,
+                    activePresetName);
+            cameraStartPending = true;
+            uiHandler.removeCallbacks(startCameraPipelineTask);
+            uiHandler.postDelayed(startCameraPipelineTask, delayMs);
+        } else {
+            frameBus.setCameraState("ERROR", msg, activePresetName);
+        }
+    }
+
+    private boolean openCameraOnMainThread() {
+        Throwable failure = null;
         synchronized (captureLock) {
-            if (cameraEx != null) return;
+            if (cameraEx != null && normalCamera != null) return true;
             try {
                 frameBus.setCameraState("OPENING_CAMERA", "", "");
                 Class<?> exClass = Class.forName("com.sony.scalar.hardware.CameraEx");
@@ -712,16 +785,17 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
                 if (cameraEx == null) throw new IllegalStateException("CameraEx.open returned null");
                 normalCamera = (Camera) exClass.getMethod("getNormalCamera").invoke(cameraEx);
                 if (normalCamera == null) throw new IllegalStateException("getNormalCamera returned null");
+                return true;
             } catch (Throwable t) {
-                Throwable cause = unwrap(t);
-                String msg = cause.getClass().getSimpleName() + ": " + String.valueOf(cause.getMessage());
-                Log.e(TAG, "openCamera error: " + msg, cause);
-                frameBus.setCameraState("ERROR", msg, "");
+                failure = unwrap(t);
             }
         }
+        handleCameraPipelineFailure("openCamera", failure);
+        return false;
     }
 
     private void startPreviewAndSequenceOnMainThread(SurfaceHolder holder) {
+        Throwable failure = null;
         synchronized (captureLock) {
             if (cameraEx == null || normalCamera == null || cameraSequence != null) return;
             try {
@@ -778,6 +852,10 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
                     throw new IllegalStateException("All presets failed; last=" + lastErr);
                 }
 
+                cameraRetryCount = 0;
+                cameraStartPending = false;
+                uiHandler.removeCallbacks(startCameraPipelineTask);
+
                 captureRunning = true;
                 captureThread = new Thread(new Runnable() {
                     @Override public void run() { runFrameProducer(); }
@@ -792,11 +870,11 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
                 motionThread.setDaemon(true);
                 motionThread.start();
             } catch (Throwable t) {
-                Throwable cause = unwrap(t);
-                String msg = cause.getClass().getSimpleName() + ": " + String.valueOf(cause.getMessage());
-                Log.e(TAG, "startPreviewAndSequence error: " + msg, cause);
-                frameBus.setCameraState("ERROR", msg, activePresetName);
+                failure = unwrap(t);
             }
+        }
+        if (failure != null) {
+            handleCameraPipelineFailure("startPreviewAndSequence", failure);
         }
     }
 
@@ -831,17 +909,23 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
     }
 
     private void stopCameraPipelineOnMainThread() {
+        boolean hadCamera = (cameraSequence != null || normalCamera != null || cameraEx != null);
         stopSequenceAndWorkers();
         synchronized (captureLock) {
             if (normalCamera != null) {
                 try { if (previewStarted) normalCamera.stopPreview(); } catch (Throwable ignored) {}
                 normalCamera = null;
                 previewStarted = false;
+                hadCamera = true;
             }
             if (cameraEx != null) {
                 try { cameraEx.getClass().getMethod("release").invoke(cameraEx); } catch (Throwable ignored) {}
                 cameraEx = null;
+                hadCamera = true;
             }
+        }
+        if (hadCamera) {
+            lastCameraStopElapsedMs = SystemClock.elapsedRealtime();
         }
     }
 
@@ -1004,6 +1088,9 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
         cachedIp = ipStr;
         cachedRssi = rssi;
         cachedStaticOn = staticOn;
+        saverHudEnabled = getSharedPreferences(DeveloperSettingsPolicy.PREFS_NAME, MODE_PRIVATE)
+                .getBoolean(ScreensaverPolicy.KEY_HUD_ENABLED, ScreensaverPolicy.DEFAULT_HUD_ENABLED);
+        if (saverOverlay != null) saverOverlay.setShowHud(saverHudEnabled);
 
         if (!connectedServicesReconciled && !"offline".equals(ipStr)) {
             connectedServicesReconciled = true;

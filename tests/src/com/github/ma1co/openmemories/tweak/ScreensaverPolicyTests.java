@@ -86,6 +86,7 @@ final class ScreensaverPolicyTests {
         expect(ScreensaverPolicy.clampDelaySec(-5) == 0, "clamps negative delay to 0");
         expect(ScreensaverPolicy.clampDelaySec(99999) == ScreensaverPolicy.MAX_DELAY_SEC, "clamps max delay");
         expect(ScreensaverPolicy.formatTimingSummary(0, 300).contains("Disabled"), "disabled summary");
+        expect(!ScreensaverPolicy.DEFAULT_HUD_ENABLED, "screensaver debug HUD defaults to OFF");
     }
 
     private static void fadeCurveAndCountdownFormatting() {

@@ -53,6 +53,7 @@ public class MainActivity extends TabActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        BootRecoveryPolicy.SHARED.markUiOpened();
         getTabHost().requestFocus();
 
         Thread.setDefaultUncaughtExceptionHandler(new Thread.UncaughtExceptionHandler() {
@@ -82,13 +83,14 @@ public class MainActivity extends TabActivity {
 
     private void reconcileNetworkBeforeWebcam(AndroidDeveloperSettingsStore devStore) {
         try {
-            DeveloperSettingsPolicy.Snapshot desired = DeveloperSettingsPolicy.read(devStore);
             AndroidStaticIpStore ipStore = new AndroidStaticIpStore(this);
+            boolean staticOn = StaticIpPolicy.isStaticEnabled(ipStore);
+            DeveloperSettingsPolicy.Snapshot desired = DeveloperSettingsPolicy.readAndHealForNetwork(devStore, staticOn);
             WifiManager wifi = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
             boolean wifiOn = wifi != null && (wifi.getWifiState() == WifiManager.WIFI_STATE_ENABLED
                     || wifi.getWifiState() == WifiManager.WIFI_STATE_ENABLING);
             DeveloperSettingsPolicy.RuntimeState state = new DeveloperSettingsPolicy.RuntimeState(
-                    wifiOn, false, "", StaticIpPolicy.isStaticEnabled(ipStore), false, false);
+                    wifiOn, false, "", staticOn, false, false);
             DeveloperSettingsPolicy.ReconcilePlan plan = DeveloperSettingsPolicy.planRestore(desired, state);
             if (plan.applyStaticIp) {
                 StaticIpPolicy.Config saved = StaticIpPolicy.readSavedConfig(ipStore);
@@ -126,6 +128,7 @@ public class MainActivity extends TabActivity {
     protected void onResume() {
         Logger.info("MainActivity", "application start");
         super.onResume();
+        BootRecoveryPolicy.SHARED.onUiResumed();
         resumed = true;
         if (autoLaunchHandled) {
             // Returning from LivePreviewActivity via MENU/BACK stays cleanly in Developer settings.
@@ -137,6 +140,7 @@ public class MainActivity extends TabActivity {
     @Override
     protected void onPause() {
         resumed = false;
+        BootRecoveryPolicy.SHARED.onUiPaused();
         idleHandler.removeCallbacks(idleCheck);
         super.onPause();
         Logger.info("MainActivity", "application end");

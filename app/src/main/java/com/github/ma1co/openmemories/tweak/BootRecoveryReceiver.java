@@ -15,7 +15,6 @@ import android.util.Log;
 public final class BootRecoveryReceiver extends BroadcastReceiver {
     static final String ACTION_APPLY_STATIC_IP = "com.github.ma1co.openmemories.tweak.APPLY_STATIC_IP";
     private static final String TAG = "OpenMemoriesBoot";
-    private static final BootRecoveryPolicy POLICY = new BootRecoveryPolicy();
 
     @Override public void onReceive(Context context, Intent intent) {
         if (context == null || intent == null) return;
@@ -28,7 +27,7 @@ public final class BootRecoveryReceiver extends BroadcastReceiver {
         Logger.info("BootRecoveryReceiver", "Received boot action=" + action);
         DeveloperSettingsPolicy.Snapshot snap = DeveloperSettingsPolicy.read(
                 new AndroidDeveloperSettingsStore(context));
-        if (!POLICY.shouldTrigger(action, snap.bootAutorun)) return;
+        if (!BootRecoveryPolicy.SHARED.shouldTrigger(action, snap.bootAutorun)) return;
         try {
             context.startService(new Intent(context, BootRecoveryService.class));
         } catch (RuntimeException e) {
@@ -37,7 +36,18 @@ public final class BootRecoveryReceiver extends BroadcastReceiver {
     }
 
     private static void handleStaticIpProvision(final Context app, Intent intent) {
+        AndroidDeveloperSettingsStore devStore = new AndroidDeveloperSettingsStore(app);
+        if (intent.hasExtra(ScreensaverPolicy.KEY_HUD_ENABLED)) {
+            boolean hud = intent.getBooleanExtra(ScreensaverPolicy.KEY_HUD_ENABLED, ScreensaverPolicy.DEFAULT_HUD_ENABLED);
+            devStore.putBoolean(ScreensaverPolicy.KEY_HUD_ENABLED, hud);
+            Log.i(TAG, "ADB screensaver HUD provision: " + hud);
+        }
+        DeveloperSettingsPolicy.recordBooleanIfPersisting(devStore, DeveloperSettingsPolicy.KEY_WANT_STATIC_IP, true);
+        DeveloperSettingsPolicy.recordBooleanIfPersisting(devStore, DeveloperSettingsPolicy.KEY_WANT_WIFI, true);
+        DeveloperSettingsPolicy.recordBooleanIfPersisting(devStore, DeveloperSettingsPolicy.KEY_WANT_ADB, true);
+
         String ip = intent.getStringExtra(LivePreviewActivity.EXTRA_STATIC_IP);
+        if (ip == null || ip.trim().length() == 0) return;
         String mask = intent.getStringExtra(LivePreviewActivity.EXTRA_STATIC_NETMASK);
         String gw = intent.getStringExtra(LivePreviewActivity.EXTRA_STATIC_GATEWAY);
         String dns1 = intent.getStringExtra(LivePreviewActivity.EXTRA_STATIC_DNS1);
@@ -51,14 +61,6 @@ public final class BootRecoveryReceiver extends BroadcastReceiver {
         StaticIpPolicy.Result r = StaticIpPolicy.applyStatic(ipStore, cfg);
         Log.i(TAG, "ADB static IP provision: " + (r.ok ? "OK " : "FAIL ") + r.message);
         if (!r.ok) return;
-
-        AndroidDeveloperSettingsStore devStore = new AndroidDeveloperSettingsStore(app);
-        DeveloperSettingsPolicy.recordBooleanIfPersisting(devStore, DeveloperSettingsPolicy.KEY_WANT_STATIC_IP, true);
-        DeveloperSettingsPolicy.recordBooleanIfPersisting(devStore, DeveloperSettingsPolicy.KEY_WANT_WIFI, true);
-        String adbBin = app.getApplicationInfo().nativeLibraryDir + "/libadbd.so";
-        if (Procfs.findProcess(new String[] { adbBin }) != -1) {
-            DeveloperSettingsPolicy.recordBooleanIfPersisting(devStore, DeveloperSettingsPolicy.KEY_WANT_ADB, true);
-        }
 
         final WifiManager wm = (WifiManager) app.getSystemService(Context.WIFI_SERVICE);
         if (wm == null) return;

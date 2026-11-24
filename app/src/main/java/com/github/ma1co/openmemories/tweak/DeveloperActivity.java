@@ -213,7 +213,7 @@ public class DeveloperActivity extends ItemActivity {
 
         addSwitch("Screensaver debug HUD", new SwitchItem.Adapter() {
             @Override public boolean isAvailable() { return true; }
-            @Override public boolean isEnabled() { return devStore.getBoolean(ScreensaverPolicy.KEY_HUD_ENABLED, true); }
+            @Override public boolean isEnabled() { return devStore.getBoolean(ScreensaverPolicy.KEY_HUD_ENABLED, ScreensaverPolicy.DEFAULT_HUD_ENABLED); }
             @Override public void setEnabled(boolean enabled) {
                 devStore.putBoolean(ScreensaverPolicy.KEY_HUD_ENABLED, enabled);
             }

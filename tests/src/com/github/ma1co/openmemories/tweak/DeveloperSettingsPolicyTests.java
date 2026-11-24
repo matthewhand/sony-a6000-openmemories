@@ -91,10 +91,13 @@ final class DeveloperSettingsPolicyTests {
 
     private static void autoBootstrapCapturesActiveStateOnce() {
         FakeStore store = new FakeStore();
-        // Idle cold start should not lock in an empty snapshot
+        // Idle cold start (even with dormant staticIpActive=true while Wi-Fi is off) must not lock in want_wifi=false
         expect(!DeveloperSettingsPolicy.bootstrapSnapshotIfEmpty(
                 store, new DeveloperSettingsPolicy.RuntimeState(false, false, "", false, false, false)),
                 "does not bootstrap from all-off state");
+        expect(!DeveloperSettingsPolicy.bootstrapSnapshotIfEmpty(
+                store, new DeveloperSettingsPolicy.RuntimeState(false, false, "", true, false, false)),
+                "does not bootstrap want_wifi=false from dormant staticIpActive when Wi-Fi is off");
         expect(!store.getBoolean(DeveloperSettingsPolicy.KEY_HAS_SNAPSHOT, false),
                 "has_snapshot remains false when nothing active");
 
@@ -119,6 +122,13 @@ final class DeveloperSettingsPolicyTests {
         expect(!DeveloperSettingsPolicy.bootstrapSnapshotIfEmpty(
                 offStore, new DeveloperSettingsPolicy.RuntimeState(true, true, "\"StudioLan\"", true, true, false)),
                 "skipped when persistence disabled");
+
+        // Self-healing when static IP is active/desired but want_wifi was left false
+        FakeStore healStore = new FakeStore();
+        DeveloperSettingsPolicy.recordBooleanIfPersisting(healStore, DeveloperSettingsPolicy.KEY_WANT_STATIC_IP, true);
+        DeveloperSettingsPolicy.recordBooleanIfPersisting(healStore, DeveloperSettingsPolicy.KEY_WANT_WIFI, false);
+        DeveloperSettingsPolicy.Snapshot healed = DeveloperSettingsPolicy.readAndHealForNetwork(healStore, true);
+        expect(healed.wantWifi, "readAndHealForNetwork heals want_wifi when static IP is active");
     }
 
     private static void expect(boolean ok, String msg) {

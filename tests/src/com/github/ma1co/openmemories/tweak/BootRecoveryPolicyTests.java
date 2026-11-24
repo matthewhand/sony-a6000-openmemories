@@ -13,6 +13,25 @@ final class BootRecoveryPolicyTests {
         expect(!p.shouldTrigger(BootRecoveryPolicy.ACTION_ANDROID_BOOT, true), "duplicate broadcast deduped");
         p.resetForTests();
         expect(p.shouldTrigger(BootRecoveryPolicy.ACTION_ANDROID_BOOT, true), "triggers again after reset");
+
+        // UI presence guard: prevents delayed BootRecoveryService from relaunching over active UI
+        expect(p.shouldLaunchUi(), "fresh boot allows UI launch");
+        expect(!p.isUiForeground(), "fresh boot has no foreground UI");
+        p.markUiOpened();
+        expect(!p.shouldLaunchUi(), "opening UI suppresses delayed boot relaunch");
+        p.onUiResumed();
+        expect(p.isUiForeground(), "resumed UI marked foreground");
+        expect(!p.shouldLaunchUi(), "foreground UI suppresses delayed boot relaunch");
+        p.onUiResumed();
+        p.onUiPaused();
+        expect(p.isUiForeground(), "overlapping transition keeps foreground count positive");
+        p.onUiPaused();
+        expect(!p.isUiForeground(), "all UI paused clears foreground");
+        expect(!p.shouldLaunchUi(), "once opened this boot, delayed boot launch stays suppressed");
+        p.onUiPaused();
+        expect(!p.isUiForeground(), "extra pause does not underflow foreground count");
+        p.resetForTests();
+        expect(p.shouldLaunchUi(), "reset restores clean boot UI launch state");
         System.out.println("PASS BootRecoveryPolicyTests: " + assertions + " assertions");
     }
 

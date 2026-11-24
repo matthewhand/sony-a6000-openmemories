@@ -153,8 +153,9 @@ final class DeveloperSettingsPolicy {
         if (store == null || current == null) return false;
         if (!store.getBoolean(KEY_PERSIST_ENABLED, true)) return false;
         if (store.getBoolean(KEY_HAS_SNAPSHOT, false)) return false;
-        boolean anyActive = current.wifiEnabled || current.staticIpActive
-                || current.adbRunning || current.telnetRunning;
+        // Require at least one live radio/daemon active so dormant Settings.System static-IP flags
+        // while Wi-Fi is temporarily disabled never lock in want_wifi=false.
+        boolean anyActive = current.wifiEnabled || current.adbRunning || current.telnetRunning;
         if (!anyActive) return false;
         store.putBoolean(KEY_WANT_WIFI, current.wifiEnabled);
         store.putBoolean(KEY_WANT_STATIC_IP, current.staticIpActive);
@@ -163,6 +164,19 @@ final class DeveloperSettingsPolicy {
         recordTrustedSsidIfAvailable(store, current.connectedSsid);
         store.putBoolean(KEY_HAS_SNAPSHOT, true);
         return true;
+    }
+
+    /**
+     * Heals snapshots where static IP is active/desired (or boot_start_webcam is active)
+     * so Wi-Fi is never left disabled on boot or webcam launch.
+     */
+    static Snapshot readAndHealForNetwork(Store store, boolean staticIpActive) {
+        Snapshot s = read(store);
+        if (store != null && s.persistEnabled && !s.wantWifi && (s.wantStaticIp || staticIpActive)) {
+            recordBooleanIfPersisting(store, KEY_WANT_WIFI, true);
+            s = read(store);
+        }
+        return s;
     }
 
     static ReconcilePlan planRestore(Snapshot desired, RuntimeState current) {
