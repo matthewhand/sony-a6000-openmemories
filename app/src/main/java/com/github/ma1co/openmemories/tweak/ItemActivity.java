@@ -3,6 +3,7 @@ package com.github.ma1co.openmemories.tweak;
 import android.app.AlertDialog;
 import android.content.Context;
 import android.os.Bundle;
+import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.CheckBox;
@@ -42,13 +43,16 @@ public class ItemActivity extends BaseActivity {
             this.adapter = adapter;
             titleView.setText(title);
 
-            checkBox.setOnClickListener(view -> {
-                try {
-                    SwitchItem.this.adapter.setEnabled(checkBox.isChecked());
-                } catch (Exception e) {
-                    showError(e);
+            checkBox.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View view) {
+                    try {
+                        SwitchItem.this.adapter.setEnabled(checkBox.isChecked());
+                    } catch (Exception e) {
+                        showError(e);
+                    }
+                    update();
                 }
-                update();
             });
         }
 
@@ -90,7 +94,12 @@ public class ItemActivity extends BaseActivity {
 
             this.adapter = adapter;
             buttonView.setText(text);
-            buttonView.setOnClickListener(view -> this.adapter.click());
+            buttonView.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View view) {
+                    ButtonItem.this.adapter.click();
+                }
+            });
         }
 
         public Adapter getAdapter() {

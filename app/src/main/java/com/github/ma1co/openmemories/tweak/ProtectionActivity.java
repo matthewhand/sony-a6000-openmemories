@@ -25,7 +25,9 @@ public class ProtectionActivity extends ItemActivity {
 
                 try {
                     Shell.exec("/android" + getApplicationInfo().nativeLibraryDir + "/libprotectiontweak.so " + (enabled ? "1" : "0"));
-                    Condition.waitFor(() -> isEnabled() == enabled, 500, 5000);
+                    Condition.waitFor(new Condition.Runnable() {
+                        @Override public boolean run() { return isEnabled() == enabled; }
+                    }, 500, 5000);
                 } catch (Exception e) {
                     Logger.error("writeProtectionNative", "waitFor failed");
                     throw new NativeException("Failed to set backup protection (native)");
