@@ -1,92 +1,129 @@
-# OpenMemories: Tweak
-An app to unlock settings on your Sony camera.
-* Remove the 30min video recording limit
-* Unlock the language menu
-* Disable the NTSC nag screen
-* For developers: Enable telnet and adb daemons
+# OpenMemories: Tweak (LAN Webcam & Persistence Fork)
 
-## Installation
-Please read [this section](https://github.com/ma1co/Sony-PMCA-RE#installing-android-apps) for up-to-date information on installing the app.
+A clean, TDD-tested fork of [`ma1co/OpenMemories-Tweak`](https://github.com/ma1co/OpenMemories-Tweak) for Sony PlayMemories Camera Apps (PMCA) bodies (developed and hardware-tested on **Sony ILCE-6000 / Android 2.3.7 API 10**).
 
-## Compatibility
-This app should be compatible with all Sony cameras supporting PlayMemories Camera Apps (PMCA). See [here](https://github.com/ma1co/OpenMemories-Framework/blob/master/docs/Cameras.md) for a full list.
+In addition to all upstream tweaks (30-minute video limit unlock, language unlock, PAL/NTSC selector, protection unlock, ADB, and Telnet), this fork adds reproducible offline builds, Auto Power Off inhibition, static IPv4 configuration, persistent Developer settings, Wi-Fi resilience, a burn-in-safe screensaver/full-dim mode, and an on-camera LAN MJPEG webcam server compatible with **Home Assistant**, **Frigate**, and **go2rtc**.
 
-## A word of caution
-This is not an official Sony application. All information has been found through reverse engineering. Even though everything worked fine for our developers, it could cause harm to your hardware. If you break your camera, you get to keep both pieces. **We won't take any responsibility.**
+> **Word of caution:** This is not an official Sony application. All Sony Scalar integrations are reverse engineered and provided as-is without warranty. No direct hardware LCD-off / experimental display-driver mutations are included in this repository.
 
-## Usage
-After installation, you should find the app in the "Application List" on your camera.
+---
 
-* Use the menu button to exit the app
-* The app writes a log to the SD card (*TWEAKLOG.TXT*)
+## What Changed vs. Upstream (`d1acfe8`)
 
-There are several different tabs:
+Every feature was built onto pristine upstream `d1acfe8` (`Exit to launcher #246`) as a focused, squash-merged, unit-tested PR so individual changes can be reviewed and cherry-picked upstream cleanly:
 
-### Video
-Remove the 30 minute recording limit and enjoy (almost) unlimited video recording.
+| PR | Issue | Scope | Upstream Candidate? |
+|---|---|---|---|
+| **#15** | #8 | Reproducible offline API-10 DEX `035` build script (`scripts/build-apk.sh`), pure-Java unit test runner (`scripts/run-tests.sh`), and Java 7 compatibility replacing 7 upstream lambdas | **High** (relates to upstream `#479` / `#521`) |
+| **#16** | #9 | Prevent Sony Auto Power Off (`DAConnectionManagerService.apo` `APO/NO` / `APO/NORMAL`) while Wi-Fi or developer daemons are active (`AutoPowerOffPolicy` + `SonyPowerBridge`) | **High** (directly addresses upstream `#136` / `#500`) |
+| **#17** | #10 | Static IPv4 configuration via Android `Settings.System` (`WRITE_SETTINGS`), seeded from saved values or active `DhcpInfo` with write-order guarantee and DHCP rollback (`StaticIpPolicy`) | **High** (self-contained, zero personal literals) |
+| **#18** | #11 | Persist Developer toggle states across restarts (`DeveloperSettingsPolicy`), remove `DisableWiFiOnSuspend`, add 5-min OFF-acknowledged Wi-Fi watchdog (`PeriodicWifiService`), and add dual-broadcast boot autorun (`BOOT_COMPLETED` + `DAConnectionManagerService.BootCompleted`) | **Modular** (persistence + suspend fix are clean standalone picks) |
+| **#19** | #12 | Burn-in-safe Screensaver & Pure-Black Full-Dim mode (`60s idle -> 5m starfield/oscilloscope/HUD -> zero-draw #000000`, `ScreensaverPolicy` + `ScreensaverView`) | Optional / fork feature |
+| **#20** | #13 | On-camera `CameraSequence` LAN MJPEG & snapshot server (`:8088`), async low-priority BT.601 luma motion wake, and Home Assistant core **Android IP Webcam** compatibility (`LivePreviewActivity`, `PreviewHttpServer`, `AndroidIpWebcamProtocol`) | Fork showcase feature |
+| **#21** | #14 | Documentation overhaul & upstream cherry-pick guide (`README.md`) | Repo docs |
 
-Additionally, remove the 5 minute 4K recording limit on the RX100M4.
+---
 
-### Region
-Is your camera locked to Japanese? Is it set to the wrong region? Unlock all 30+ languages.
+## Developer Tab Features
 
-Is your camera locked to NTSC? Enable the PAL / NTSC selector.
+- **Start Webcam & Stream (`:8088`):** Launches fullscreen `LivePreviewActivity` streaming hardware-encoded `CameraSequence` JPEGs (`640x424` on 3:2 bodies) over your home LAN without ever triggering the mechanical shutter. `ScreensaverView` overlays `SurfaceView` inside the same Activity so MJPEG clients never disconnect when the rear screen dims to pure black.
+- **Enable Wifi & Static IPv4 (`Settings.System`):** Toggling **Static IPv4** writes Android API 10 `Settings.System.wifi_static_*` keys (seeded automatically from existing saved values or your active DHCP lease, or editable via **Configure Static IP...**). `WifiStateTracker` applies the static IP directly and bypasses `dhcpcd`.
+- **Persist Developer settings:** Automatically remembers your desired toggle states (Wi-Fi, Static IPv4, Keep Awake, 5-min Watchdog, ADB pinned to your connected SSID, opt-in Telnet) and reconciles them in safe order on app launch and boot — no need to re-toggle every session.
+- **Keep camera awake (`APO/NO`):** Sends `DAConnectionManagerService.apo` (`APO/NO`) while Wi-Fi, ADB, Telnet, or webcam streaming is active and restores `APO/NORMAL` when turned off.
+- **5-min Wi-Fi watchdog (`OFF-ack`):** Periodically cycles Wi-Fi with observed-OFF acknowledgement and bounded retries; single-arms via `WifiEnabledReceiver`.
+- **Screensaver (`60s -> 5m -> Dim`) & Motion Wake:** After 60 seconds idle, displays a drifting 3D starfield, dual-harmonic RSSI oscilloscope, and gliding telemetry HUD for 5 minutes (15-second linear fade) before entering zero-draw pure black. Any key press, touch, local async luma-difference motion, or `POST /screen/wake` immediately reveals the live image.
+- **Auto boot recovery:** Listens to both `android.intent.action.BOOT_COMPLETED` and Sony's native `com.android.server.DAConnectionManagerService.BootCompleted` (deduplicated once per boot and guarded by a 3-incomplete-start crash-loop breaker).
 
-Does your camera show you the NTSC nag screen on every startup? Disable the PAL / NTSC selector to get rid of the nag screen.
+---
 
-### Protection
-Use this option only if you're asked to do so. Some of the above settings may fail because your settings file is locked. Disable the protection here. In practice, it should only matter to this app if your settings are protected or not. Otherwise, this won't change anything. We still recommend re-enabling protection after you're done tweaking your settings.
+## Home Assistant & Frigate Integration
 
-### Developer
-#### Wifi
-Check the "Enable Wifi" checkbox to permanently connect the camera to your wifi access point.
+### Option A: Home Assistant Core **Android IP Webcam** (Zero YAML)
+1. Start **Webcam & Stream (`:8088`)** on the camera.
+2. In Home Assistant: **Settings → Devices & services → Add integration → Android IP Webcam**.
+3. Enter your camera's static IP and port `8088` (leave username/password blank unless configured).
+4. Home Assistant automatically creates:
+   - `camera.*` (MJPEG via `/video`, snapshots via `/shot.jpg`)
+   - `binary_sensor.*_motion_active` (on-camera motion detector)
+   - `sensor.*_battery_level`, `sensor.*_battery_temp`, `sensor.*_battery_voltage`, `sensor.*_video_connections`
+   - `switch.*_motion_detect` and `switch.*_overlay`
 
-Don't forget to increase the "Power save start time" in the menu, or the camera may turn off automatically after a few minutes.
+### Option B: Home Assistant **MJPEG IP Camera**
+- **MJPEG URL:** `http://<CAMERA_IP>:8088/liveview.mjpeg`
+- **Still Image URL:** `http://<CAMERA_IP>:8088/snapshot.jpg`
 
-Once wifi is enabled, you can run and connect to the following daemons:
+### Option C: Frigate + go2rtc
+Expose an RTSP/WebRTC restream via `go2rtc.yaml`:
+```yaml
+streams:
+  sony_camera: ffmpeg:http://<CAMERA_IP>:8088/liveview.mjpeg#video=h264#hardware
+```
+To wake the dimmed camera LCD only when Frigate detects a person, call `POST http://<CAMERA_IP>:8088/screen/wake` from a Home Assistant `rest_command` automation.
 
-#### Telnet
-To get a root shell on your camera, check the "Enable Telnet" checkbox. This starts a telnet daemon listening on port 23. Connect to it via wifi.
+---
 
-A few special commands you can run:
+## HTTP API Reference (`:8088`)
 
-##### To run an Android shell
-    android_console.sh
+### Canonical REST Endpoints
+| Method & Path | Response | Notes |
+|---|---|---|
+| `GET /liveview.mjpeg` (alias `/stream.mjpeg`) | `200` `multipart/x-mixed-replace; boundary=a6000frame` | Continuous hardware JPEG stream; `503` if camera unavailable |
+| `GET /snapshot.jpg` (alias `/snapshot.jpeg`) | `200` `image/jpeg` (`Cache-Control: no-store`) | Latest fresh preview frame (`X-Sony-Deliberate-Capture: false`); never fires shutter |
+| `GET /health` | `200` or `503` `application/json` | `200` only while a fresh frame (`< 5000 ms`) is available |
+| `GET /status` (alias `/`) | `200` `application/json` | Camera state, preset, frame count, FPS, clients, screen stage, motion, battery, IP, RSSI |
+| `POST /screen/wake` | `200` `application/json` | Wakes `SCREENSAVER` / `FULL_DIM` to live preview (`last_wake_reason: "http"`) |
+| `POST /screen/screensaver` | `200` `application/json` | Enters Starfield + Oscilloscope screensaver immediately |
+| `POST /screen/dim` | `200` `application/json` | Enters zero-draw pure-black `FULL_DIM` immediately |
 
-##### To dump the firmware to the sdcard
-On Android 2:
+### Home Assistant `Android IP Webcam` (`pydroid-ipcam`) Compatibility Endpoints
+| Method & Path | Response | Notes |
+|---|---|---|
+| `GET /video` | `200` MJPEG stream | Alias for `/liveview.mjpeg` |
+| `GET /shot.jpg` | `200` `image/jpeg` | Alias for `/snapshot.jpg` |
+| `GET /status.json` | `200` `application/json` | `curvals` (`video_size`, `motion_detect`, `overlay`) and `avail` |
+| `GET /sensors.json` | `200` `application/json` | `battery_level`, `battery_temp`, `battery_voltage`, `motion_active`, `video_connections` |
+| `GET /settings/motion_detect?set=on\|off` | `200` `Ok` | Toggles on-camera motion detection |
+| `GET /settings/overlay?set=on\|off` | `200` `Ok` | `on` enters screensaver overlay; `off` wakes to live view |
 
-    dd if=/dev/nflasha of=/android/mnt/sdcard/DUMP.DAT bs=1M
+---
 
-On Android 4:
+## Reproducible Offline Build & Tests
 
-    dd if=/dev/nflasha of=/android/storage/sdcard0/DUMP.DAT bs=1M
+Requirements: JDK 8 (`javac`/`java`), Android `aapt`, `dx`, `zipalign`, Python 3, an Android API 10 `android-2.3.3.jar`, and the pinned upstream `OpenMemories-Tweak-release-0.11.apk` (for original `libadbd.so`, `libprotectiontweak.so`, and `libtweak.so`).
 
-This operation will take some time (it copies about 500MB). Use [fwtool.py](https://github.com/ma1co/fwtool.py) to unpack the dump file.
+### Run Pure-Java & Loopback HTTP Unit Tests
+```bash
+./scripts/run-tests.sh
+```
 
-#### ADB
-To install and debug Android apps from your computer, check the "Enable ADB" checkbox. This starts an ADB daemon listening on port 5555. Connect to it via wifi:
+### Build Unsigned API-10 (DEX `035`) APK
+```bash
+# Default upstream package ID (com.github.ma1co.openmemories.tweak):
+./scripts/build-apk.sh --out /dev/shm/openmemories-tweak-unsigned.apk
 
-    adb connect <your camera's ip>
+# Side-by-side custom package ID (recommended on Android 2.3.7 so PackageManager
+# grants newly added WRITE_SETTINGS, CAMERA, INTERNET, and RECEIVE_BOOT_COMPLETED
+# permissions cleanly on first install):
+./scripts/build-apk.sh \
+  --package-id dev.privatea6000.hub \
+  --app-label "A6000 Hub" \
+  --version-code 3 \
+  --version-name 1.1.0 \
+  --out /dev/shm/a6000-hub-unsigned.apk
+```
+Sign with Android 2.3-compatible **v1 JAR signing** (`jarsigner -sigalg SHA1withRSA -digestalg SHA1`), run `zipalign -f 4`, and install via PMCA or `adb install`.
 
-## FAQ
-### How does it all work?
-[nex-hack](http://www.personal-view.com/faqs/sony-hack/hack-development) managed to decrypt firmware updates (see [fwtool.py](https://github.com/ma1co/fwtool.py) for a more recent unpacker). The [PMCA-RE](https://github.com/ma1co/Sony-PMCA-RE) project reverse engineered how apps are installed. This allows us to run custom code. With the knowledge from the firmware, we found out how settings are stored on the camera (hint: in a file called *Backup.bin*). We can now change these settings directly, also the ones locked by Sony.
+> **Android 2.3.7 Permission Quirk:** Upgrading an already-installed package via `adb install -r` does not grant newly added `<uses-permission>` entries on Gingerbread. Always use a fresh `--package-id` (or uninstall/reinstall cleanly) when adding permissions.
 
-### It doesn't work for me!
-First, thanks for testing. If you encounter a bug, please open an issue!
+---
 
-### How can I remove the app?
-You can uninstall it normally with the "Application Management" app. The modified settings are preserved even if you remove the app.
+## Verification Status
 
-### What happens if i do a factory reset?
-Some settings might be removed, others will be permanent. We still have to investigate a bit more to find out which features are reset and how. In the worst case, you can reinstall the app (all apps are removed in a factory reset) and apply the settings again.
-
-### What happens if i do a firmware update?
-See above.
-
-### I have an old camera that doesn't support apps
-Depending on your camera, tweaks may be applied using a method based on the firmware update process: [More information](https://github.com/ma1co/Sony-PMCA-RE#tweaking-camera-settings)
-
-### Can you add feature X?
-Keep in mind that this app can only change settings that are already there and just hidden by Sony. However, there are still about 15 000 entries in the settings file. So finding out what a particular setting does is quite an effort. But if you have ideas, feel free to open an issue!
+- **Offline verified (11 test suites, 173 assertions):** `ConditionTests`, `AutoPowerOffPolicyTests`, `StaticIpPolicyTests`, `DeveloperSettingsPolicyTests`, `PeriodicWifiPolicyTests`, `BootRecoveryPolicyTests`, `ScreensaverPolicyTests`, `MotionDetectorPolicyTests`, `PreviewFrameBusTests`, `AndroidIpWebcamProtocolTests`, and real loopback socket `PreviewHttpServerTests`.
+- **Hardware verified on Sony ILCE-6000 (Android 2.3.7, API V4):**
+  - Static IPv4 via `Settings.System` (`WifiStateTracker: Static IP configuration succeeded`, `dhcpcd` stopped).
+  - Auto Power Off inhibition (`DAConnectionManagerService-JNI: APO/NO -> call MSS_fakey_stop`).
+  - Live `640x424` hardware `CameraSequence` JPEG snapshots (`/snapshot.jpg`) and continuous MJPEG streaming (`/liveview.mjpeg`) uninterrupted during `SCREENSAVER` and `FULL_DIM`, plus `POST /screen/{screensaver,dim,wake}`.
+- **Pending physical acceptance:**
+  - Cold-boot power-cycle verification confirming Sony firmware delivers `DAConnectionManagerService.BootCompleted` (or `BOOT_COMPLETED`) to third-party packages after power-on.
+  - Multi-hour HAOS + Frigate endurance soak with async motion worker enabled.
