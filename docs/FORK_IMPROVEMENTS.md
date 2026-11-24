@@ -114,3 +114,16 @@ All business logic is factored into **pure-Java, dependency-free `*Policy` class
 - Checks active Wi-Fi IPv4 before consuming the 15-second retry cooldown (`AtomicBoolean` in-flight guard), retries cleanly once Wi-Fi connects until synced, and logs sync status to `logcat` (`OpenMemoriesNtp`).
 - Updates Linux/Android time via injection-safe `busybox date -u -s "YYYY-MM-DD HH:MM:SS"` (verified live on ILCE-6000 updating `1970 -> 2026`) and reflectively invokes Sony `com.sony.scalar.sysutil.TimeUtil.setCurrentTime` on Sony API V6+ cameras.
 - Uses `SystemClock.uptimeMillis()` (`CLOCK_MONOTONIC`) instead of `SystemClock.elapsedRealtime()` across all activity timers because Android 2.3.7's `/dev/alarm` driver jumps `elapsedRealtime()` forward when `busybox date -u -s` calls `settimeofday()`, which previously caused an immediate premature `FULL_DIM` (`DEVICE_ID_NONE`) right after boot NTP sync.
+
+---
+
+## 9. Roadmap
+
+- **Auto-Launch from Active NFC (`custom_key_NFC_Shooting` + PN532 / ESPHome):**
+  - Confirmed in `ScalarALauncher.odex` and `SmartRemote.apk` that Sony's built-in **Menu → Wireless → One-touch (NFC)** launcher registers any standard `MAIN`/`LAUNCHER` app (including **A6000 Hub**) into `nfc_shooting.xml` (`custom_key_NFC_Shooting`).
+  - Because the ILCE-6000's NFC antenna operates as a passive/target tag, passive NFC bands/stickers cannot trigger it; investigate using a gated active 13.56 MHz **PN532** reader (FeliCa/NFC-F compatible, wired via I2C to any spare ESP32/ESP8266 running ESPHome) pulsed briefly by Home Assistant whenever the camera drops offline after a power outage, plus an optional in-app `ScalarACustomKeyRegister` / `DAConnectionManager.registerCustomKeyInfo` shortcut.
+- **Direct Diadem `C1` / `C2` Launch from Cold Boot:**
+  - Today, manual launch on power cycle (or mapping Diadem **Custom Key Settings → `C1`/`C2` = Application List**) wakes Android and triggers `BootRecoveryReceiver` → auto-streaming `:8088`.
+  - Investigate whether Sony `DAConnectionManager.registerCustomKeyInfo(pkg, cls, key)` or Diadem backup/property keys support binding physical `C1`/`C2` directly to an Android activity on ILCE-6000 or newer Sony Scalar bodies (API V5/V6+).
+- **Infrared (`SIRCS` / `RMT-DSLR2`) Option (Evaluated):**
+  - Verified in Sony docs and ILCE-6000 `ScalarInput.odex`: existing IR blasters (`Setup → Remote Ctrl: ON`) can trigger Shutter / 2s Shutter / Movie Start-Stop in shooting mode, but cannot navigate Diadem menus or launch PlayMemories apps (no `ISV_KEY_IR_CUSTOM1/2` or app-launch SIRCS code exists). Active NFC (`PN532`) remains the viable hands-free wake path.
