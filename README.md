@@ -35,7 +35,7 @@ Every feature was built onto pristine upstream `d1acfe8` (`Exit to launcher #246
 | **#43** | #42 | Fix `RuntimeException: startPreview failed` (`Overlay Creation Failed!`): prevent `BootRecoveryService` from relaunching over an active UI (`BootRecoveryPolicy.SHARED`), add 500ms overlay cooldown + 4-step bounded retry (`CameraRetryPolicy`), self-heal `want_wifi=true` when static IP is active, default Screensaver HUD to OFF | **High** (reliability fix) |
 | **#45** | #44 | Eliminate 1-second screensaver black flicker: park `SurfaceView` hardware overlay at `1×1` during `SCREENSAVER`/`FULL_DIM`, paint non-colorkey near-black (`Color.rgb(8,8,8)` / RGB565 `0x0841 != 0x0000`), stop `emptyReads` 1s `statusStrip` height flapping, short-circuit `SonyDisplayBacklight.turnOff()` polling, resume Webcam on Settings idle | **High** (ILCE-6000 HAL fix) |
 | **#47** | #46 | 5-second on-launch hardware key tip banner (`MENU` / `C2(?)` / `OK` / `C1`) + keep `APO/NO` active across Settings and Screensaver transitions | UX & reliability |
-| **#49** | #48 | Bind physical **`C2` (`? / Delete`)** button (`595` / `623`) to an in-Activity **Quick Control & Telemetry Popup Menu** (`QuickPopupMenuPolicy`: live API/client counts, last client IP, Wi-Fi/RSSI/daemons, battery/thermal/uptime, 5-event activity log + 11 live quick toggles without interrupting `:8088` streaming) + `FINISH_COMP` remote unstick broadcast | Fork showcase |
+| **#49** | #48 | Bind physical **`C2` (`? / Delete`)** button (`595` / `623`) to an in-Activity **Quick Control & Telemetry Popup Menu** (`QuickPopupMenuPolicy`: live API/client counts, last client IP, Wi-Fi/RSSI/daemons, battery/thermal/uptime, 5-event activity log + 12 quick actions without interrupting `:8088` streaming) + `FINISH_COMP` remote unstick broadcast | Fork showcase |
 | **#51** | #50 | Defect sweep & QoL polish: monotonic `System.nanoTime()` frame-wait deadline (immune to NTP jumps), unknown `StatFs` `-1` prune guard + unsigned 32-bit SD block math, HTTP `HEAD` support & accurate `POST /screen/*` stages, `NtpSyncHelper` concurrency guard, crisp ASCII Matrix glyphs for Gingerbread `DroidSansMono`, `C2` popup idle guard, DHCP auto-bounce, and full documentation overhaul | **High** (hardening & docs) |
 | **#53** | #52 | Live hardware polish & ergonomics (`v1.6.7`): redesigned large-font fullscreen **`C2`** Quick Menu (~2.5 chunky cells visible with `UP/DN` arrow hint, in-place focus-preserving updates, dedicated **Details & History** view, and live `C1` picker); expanded **`C1`** dropdown (9 actions incl. 3-way **LCD / EVF / OFF** output cycling via Sony `DisplayManager.DEVICE_ID_FINDER` and **Start / Stop HTTP Server :8088**); auto-boot `MENU` → Hub Settings navigation fix; HTTP `/screen/{screensaver,dim}` popup-dismiss fix; pre-Wi-Fi NTP guard + fast LAN timeout; `SO_REUSEADDR` pre-bind fix, atomic `last_client` snapshot, `volatile` cross-thread visibility, and `DeveloperActivity` dialog lifecycle guards | **High** (UX & stability) |
 | **#55** | #54 | Stream-view readability & `C2` Full Settings visibility (`v1.6.8`): enlarged live stream status bar (`18sp` bold 2-line overlay) and launch tip banner (`17sp` bold 2-line); promoted **Full Settings Menu (`MENU`)** into the top 3 visible `C2` Quick Menu cells + header hint (`MENU: Full`) so users immediately see the full tabbed Settings menu | UX polish |
@@ -52,7 +52,7 @@ When **`A6000 Hub`** launches into Webcam mode (`:8088`), a 5-second bottom bann
 | Physical Sony A6000 Button | Scan Code(s) | Action |
 |---|---|---|
 | **`Shutter (S1 / S2)`** | `516`/`517` (S1), `518` (S2) | Half-press (`S1`): real lens AutoFocus with `[ AF... ]` / `[ AF LOCKED ]` badge; Full-press (`S2`): real **24 MP photo to SD card** (`CameraEx.burstableTakePicture()`) with white shutter-flash + save banner + automatic `:8088` stream resume *(never fired remotely over HTTP)* |
-| **`MENU`** | `514` (`KEYCODE_MENU` / `KEYCODE_BACK`) | Open full **Developer Settings** (works even when auto-booted directly into Webcam) |
+| **`MENU`** | `514` (`KEYCODE_MENU`) or Android `4` (`KEYCODE_BACK`) | Open full **Developer Settings** (works even when auto-booted directly into Webcam) |
 | **`C2` (`? / Delete`)** | `595` / `623` | Open / close fullscreen large-font **Quick Menu** (~2.5 big cells visible with `UP/DN` arrow hint, LCD/EVF/OFF output toggle, Start/Stop `:8088` server, saver/motion toggles, `C1` action picker, and dedicated **Details & History** view — never interrupts `:8088` streaming) |
 | **`C1`** | `622` / `588` | Configurable custom action (9 options in Developer Settings or `C2` menu; default: **Toggle Screensaver Hold**, plus **Cycle Output: LCD / EVF / OFF**, **Toggle Screen On/Off**, **Start / Stop Server :8088**, etc.) |
 | **`OK` (Center)** | `232` (`DPAD_CENTER`) | Enter **Screensaver** immediately |
@@ -88,7 +88,7 @@ For unattended 24/7 webcam or Home Assistant operation on the A6000:
 ### Option A: Home Assistant Core **Android IP Webcam** (Zero YAML)
 1. Launch **A6000 Hub** (auto-starts Webcam `:8088`).
 2. In Home Assistant: **Settings → Devices & services → Add integration → Android IP Webcam**.
-3. Enter your camera's static IP and port `8088` (leave username/password blank unless configured).
+3. Enter your camera's static IP and port `8088` and leave username/password blank. The built-in server has no authentication UI; Basic Auth exists only as an optional constructor parameter and is not enabled by default.
 4. Home Assistant automatically creates `camera.*` (`/video`, `/shot.jpg`), `binary_sensor.*_motion_active`, `sensor.*_battery_{level,temp,voltage}`, `sensor.*_video_connections`, and `switch.*_{motion_detect,overlay}`.
 
 ### Option B: Home Assistant **MJPEG IP Camera**
@@ -111,6 +111,8 @@ A custom vector illustration of the Sony α6000 with an attached telescopic tele
 ---
 
 ## HTTP API Reference (`:8088`)
+
+> **Security warning:** the preview server uses plain HTTP with no TLS. It has no authentication UI and is unauthenticated by default. Only expose it on a trusted LAN or behind a VPN/TLS-terminating proxy; never expose `:8088` to the public Internet.
 
 ### Canonical REST Endpoints
 | Method & Path | Response | Notes |
@@ -137,33 +139,35 @@ A custom vector illustration of the Sony α6000 with an attached telescopic tele
 
 ## ADB Remote Provisioning Broadcasts (Generic, Zero Hardcoded IPs)
 
-Because Sony's `ScalarALauncher` holds `ActivityManager.stopAppSwitches()` while the app grid is focused, `BootRecoveryReceiver` accepts generic `am broadcast` intents over ADB (`:5555`) that bypass Activity-switch restrictions:
+Because Sony's `ScalarALauncher` holds `ActivityManager.stopAppSwitches()` while the app grid is focused, `BootRecoveryReceiver` accepts generic `am broadcast` intents over ADB (`:5555`) that bypass Activity-switch restrictions. Replace `com.example.hub` in the examples with the package ID chosen via `--package-id`:
 
 ```bash
 # Provision static IPv4 + bounce Wi-Fi + persist want_wifi/want_static_ip/want_adb:
 adb shell am broadcast \
   -a com.github.ma1co.openmemories.tweak.APPLY_STATIC_IP \
-  -n dev.privatea6000.hub/com.github.ma1co.openmemories.tweak.BootRecoveryReceiver \
+  -n com.example.hub/com.github.ma1co.openmemories.tweak.BootRecoveryReceiver \
   --es static_ip 192.0.2.10 --es static_gateway 192.0.2.1 \
   --es static_netmask 255.255.255.0 --es static_dns1 192.0.2.1 --es static_dns2 8.8.8.8
 
 # Toggle screensaver debug HUD without bouncing Wi-Fi (omit static_ip):
 adb shell am broadcast \
   -a com.github.ma1co.openmemories.tweak.APPLY_STATIC_IP \
-  -n dev.privatea6000.hub/com.github.ma1co.openmemories.tweak.BootRecoveryReceiver \
+  -n com.example.hub/com.github.ma1co.openmemories.tweak.BootRecoveryReceiver \
   --ez screensaver_hud_enabled false
 
 # Recover remotely if an adb install -r interrupted a ScalarABlackLauncher exit transition:
 adb shell am broadcast \
   -a com.github.ma1co.openmemories.tweak.FINISH_COMP \
-  -n dev.privatea6000.hub/com.github.ma1co.openmemories.tweak.BootRecoveryReceiver
+  -n com.example.hub/com.github.ma1co.openmemories.tweak.BootRecoveryReceiver
 ```
 
 ---
 
 ## Reproducible Offline Build & Tests
 
-Requirements: JDK 8 (`javac`/`java`), Android `aapt`, `dx`, `zipalign`, Python 3, an Android API 10 `android-2.3.3.jar`, and the pinned upstream `OpenMemories-Tweak-release-0.11.apk` (for original `libadbd.so`, `libprotectiontweak.so`, and `libtweak.so`).
+Requirements: JDK 8 (`javac`/`java`), Android `aapt`, `dx`, `zipalign`, Python 3, an Android API 10 `android-2.3.3.jar`, an Android API 23 `android.jar` for `aapt`, and the pinned upstream `OpenMemories-Tweak-release-0.11.apk` (for original `libadbd.so`, `libprotectiontweak.so`, and `libtweak.so`).
+
+Supply `API10_JAR` (SHA-1 `949a2bef1ffe62e81af5d8919d17dfcc1309c43c`) and `NATIVE_APK` (SHA-256 `80a61a3a3d50e2dd22492cdd96cf56c8b1523c83662ae3def59fd52b28675a47`) via environment variables or `--api10-jar` / `--native-apk`. `API23_JAR` defaults to `/usr/lib/android-sdk/platforms/android-23/android.jar`. The build script refuses to run without the explicit inputs and verifies both hashes.
 
 ### Run Pure-Java & Loopback HTTP Unit Tests
 ```bash
@@ -193,7 +197,7 @@ Sign with Android 2.3-compatible **v1 JAR signing** (`jarsigner -sigalg SHA1with
 
 ## Verification Status
 
-- **Offline verified (17 test suites, 442 assertions):** `AndroidIpWebcamProtocolTests`, `AutoPowerOffPolicyTests`, `BootRecoveryPolicyTests`, `CameraRetryPolicyTests`, `ConditionTests`, `CustomButtonPolicyTests`, `DeveloperSettingsPolicyTests`, `DisplayBacklightPolicyTests`, `MotionDetectorPolicyTests`, `MotionStoragePolicyTests`, `PreviewFrameBusTests`, `PreviewHttpServerTests` (real loopback sockets incl. `HEAD`, MJPEG, Basic Auth), `QuickPopupMenuPolicyTests`, `ScreensaverPolicyTests`, `ShutterCapturePolicyTests`, `SntpClientPolicyTests` (real loopback UDP), and `StaticIpPolicyTests`.
+- **Offline verified (17 test suites, 394 assertions):** `AndroidIpWebcamProtocolTests`, `AutoPowerOffPolicyTests`, `BootRecoveryPolicyTests`, `CameraRetryPolicyTests`, `ConditionTests`, `CustomButtonPolicyTests`, `DeveloperSettingsPolicyTests`, `DisplayBacklightPolicyTests`, `MotionDetectorPolicyTests`, `MotionStoragePolicyTests`, `PreviewFrameBusTests`, `PreviewHttpServerTests` (real loopback sockets incl. `HEAD`, MJPEG, Basic Auth), `QuickPopupMenuPolicyTests`, `ScreensaverPolicyTests`, `ShutterCapturePolicyTests`, `SntpClientPolicyTests` (real loopback UDP), and `StaticIpPolicyTests`.
 - **Hardware verified on Sony ILCE-6000 (Android 2.3.7, API V4):**
   - Static IPv4 via `Settings.System` + `SharedPreferences` mirror (`WifiStateTracker: Static IP configuration succeeded`, hands-free ADB broadcast IP switching).
   - Auto Power Off inhibition (`DAConnectionManagerService-JNI: APO/NO -> call MSS_fakey_stop`).

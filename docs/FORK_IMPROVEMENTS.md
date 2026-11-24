@@ -62,7 +62,7 @@ All business logic is factored into **pure-Java, dependency-free `*Policy` class
 
 - **Real Hardware LCD Backlight Shutoff (`DisplayBacklightPolicy`, `SonyDisplayBacklight`):**
   - Switches Sony's `com.sony.scalar.hardware.avio.DisplayManager` to `DEVICE_ID_NONE` in `FULL_DIM` (with `WindowManager.LayoutParams.screenBrightness` fallback), shutting off the rear LCD backlight completely while `:8088` streaming continues uninterrupted.
-  - Guards against disturbing external/EVF outputs, short-circuits repeated `turnOff()` calls so JNI polling never spams `logcat`, and guarantees `DEVICE_ID_PANEL` restoration on key, touch, motion, HTTP wake, pause, or destroy.
+  - Guards against disturbing external/EVF outputs, short-circuits repeated `turnOff()` calls so JNI polling never spams `logcat`, and guarantees restoration to the **LCD panel** (`DEVICE_ID_PANEL`) on key, touch, motion, HTTP wake, pause, or destroy (a previously selected EVF output is not preserved).
 - **6 Burn-In-Safe Screensaver Styles + Configurable Timing (`ScreensaverPolicy`, `ScreensaverView`):**
   - Configurable idle delay (`0` = disabled, default `60s`) and dim timeout (default `300s`, `0` = never dim).
   - **Random** *(default, top of picker above divider)* plus **Matrix Rain** *(crisp ASCII glyphs compatible with Gingerbread `DroidSansMono`)*, **Motion Gallery**, **Starfield Warp**, **Digital Clock**, **a6000 Bouncer**, and **Minimal Dark**.
