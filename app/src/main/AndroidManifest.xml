@@ -48,13 +48,7 @@
                 <action android:name="com.android.server.DAConnectionManagerService.BootCompleted" />
             </intent-filter>
         </receiver>
-        <receiver android:name=".WifiEnabledReceiver" android:exported="false">
-            <intent-filter>
-                <action android:name="android.net.wifi.WIFI_STATE_CHANGED" />
-            </intent-filter>
-        </receiver>
         <service android:name=".BootRecoveryService" android:exported="false" />
-        <service android:name=".PeriodicWifiService" android:exported="false" />
     </application>
 
 </manifest>

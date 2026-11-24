@@ -61,8 +61,7 @@ public final class BootRecoveryService extends Service {
             WifiManager wifi = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
             boolean wifiOn = wifi != null && wifi.isWifiEnabled();
             DeveloperSettingsPolicy.RuntimeState state = new DeveloperSettingsPolicy.RuntimeState(
-                    wifiOn, false, "", StaticIpPolicy.isStaticEnabled(ipStore),
-                    PeriodicWifiService.isArmed(this), false, false);
+                    wifiOn, false, "", StaticIpPolicy.isStaticEnabled(ipStore), false, false);
             DeveloperSettingsPolicy.ReconcilePlan plan = DeveloperSettingsPolicy.planRestore(desired, state);
 
             if (plan.applyStaticIp) {
@@ -74,11 +73,6 @@ public final class BootRecoveryService extends Service {
             }
             if (plan.enableWifi && wifi != null) {
                 wifi.setWifiEnabled(true);
-            }
-            if (plan.armWatchdog) {
-                PeriodicWifiService.setArmed(this, true);
-            } else {
-                PeriodicWifiService.resumeIfNeeded(this);
             }
         } catch (Exception e) {
             Logger.error("BootRecovery.network", e);
@@ -122,7 +116,7 @@ public final class BootRecoveryService extends Service {
             DeveloperSettingsPolicy.RuntimeState state = new DeveloperSettingsPolicy.RuntimeState(
                     wifi != null && wifi.isWifiEnabled(), connected, ssid,
                     StaticIpPolicy.isStaticEnabled(new AndroidStaticIpStore(this)),
-                    PeriodicWifiService.isArmed(this), adbRunning, telnetRunning);
+                    adbRunning, telnetRunning);
             DeveloperSettingsPolicy.ReconcilePlan plan = DeveloperSettingsPolicy.planRestore(desired, state);
 
             if (plan.startAdb) {

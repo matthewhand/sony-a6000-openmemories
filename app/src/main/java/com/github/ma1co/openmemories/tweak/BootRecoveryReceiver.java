@@ -13,11 +13,6 @@ public final class BootRecoveryReceiver extends BroadcastReceiver {
         String action = intent.getAction();
         if (!BootRecoveryPolicy.isBootAction(action)) return;
         Logger.info("BootRecoveryReceiver", "Received boot action=" + action);
-        try {
-            PeriodicWifiService.resumeIfNeeded(context);
-        } catch (RuntimeException e) {
-            Logger.error("BootRecoveryReceiver.watchdog", e);
-        }
         DeveloperSettingsPolicy.Snapshot snap = DeveloperSettingsPolicy.read(
                 new AndroidDeveloperSettingsStore(context));
         if (!POLICY.shouldTrigger(action, snap.bootAutorun)) return;

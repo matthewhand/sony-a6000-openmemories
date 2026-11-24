@@ -33,7 +33,6 @@ final class DeveloperSettingsPolicyTests {
         expect(!s.wantAdb, "adb off until user enables");
         expect(!s.wantTelnet, "telnet off by default");
         expect(s.wantKeepAwake, "keep awake on by default");
-        expect(s.wantWatchdog, "watchdog on by default");
         expect(s.bootAutorun, "boot autorun on by default");
     }
 
@@ -45,22 +44,21 @@ final class DeveloperSettingsPolicyTests {
         DeveloperSettingsPolicy.recordTrustedSsidIfAvailable(store, "\"StudioLan\"");
 
         DeveloperSettingsPolicy.Snapshot desired = DeveloperSettingsPolicy.read(store);
-        // Before Wi-Fi connects: apply static IP, enable Wi-Fi, inhibit APO, arm watchdog, defer ADB
+        // Before Wi-Fi connects: apply static IP, enable Wi-Fi, inhibit APO, defer ADB
         DeveloperSettingsPolicy.RuntimeState cold = new DeveloperSettingsPolicy.RuntimeState(
-                false, false, "", false, false, false, false);
+                false, false, "", false, false, false);
         DeveloperSettingsPolicy.ReconcilePlan p1 = DeveloperSettingsPolicy.planRestore(desired, cold);
         expect(p1.applyStaticIp, "re-applies static IP before Wi-Fi");
         expect(p1.enableWifi, "enables Wi-Fi");
         expect(p1.inhibitApo, "inhibits APO");
-        expect(p1.armWatchdog, "arms watchdog");
         expect(!p1.startAdb, "defers ADB until connected");
         expect(!p1.startTelnet, "telnet stays off when not requested");
 
         // After Wi-Fi connects to trusted SSID: start ADB
         DeveloperSettingsPolicy.RuntimeState connected = new DeveloperSettingsPolicy.RuntimeState(
-                true, true, "\"StudioLan\"", true, true, false, false);
+                true, true, "\"StudioLan\"", true, false, false);
         DeveloperSettingsPolicy.ReconcilePlan p2 = DeveloperSettingsPolicy.planRestore(desired, connected);
-        expect(!p2.applyStaticIp && !p2.enableWifi && !p2.armWatchdog, "already reconciled items skipped");
+        expect(!p2.applyStaticIp && !p2.enableWifi, "already reconciled items skipped");
         expect(p2.startAdb, "starts ADB on trusted SSID");
         expect(DeveloperSettingsPolicy.summary(desired).contains("StudioLan"), "summary includes trusted SSID");
     }
@@ -74,7 +72,7 @@ final class DeveloperSettingsPolicyTests {
         expect(!s.persistEnabled, "persist disabled");
         expect(!s.wantAdb, "toggles not recorded while persist disabled");
         DeveloperSettingsPolicy.ReconcilePlan plan = DeveloperSettingsPolicy.planRestore(
-                s, new DeveloperSettingsPolicy.RuntimeState(false, false, "", false, false, false, false));
+                s, new DeveloperSettingsPolicy.RuntimeState(false, false, "", false, false, false));
         expect(plan.isEmpty(), "no-op restore plan when persist disabled");
     }
 
@@ -86,7 +84,7 @@ final class DeveloperSettingsPolicyTests {
 
         DeveloperSettingsPolicy.ReconcilePlan plan = DeveloperSettingsPolicy.planRestore(
                 DeveloperSettingsPolicy.read(store),
-                new DeveloperSettingsPolicy.RuntimeState(true, true, "PublicWifi", true, true, false, false));
+                new DeveloperSettingsPolicy.RuntimeState(true, true, "PublicWifi", true, false, false));
         expect(!plan.startAdb && !plan.startTelnet, "untrusted SSID blocks ADB and Telnet");
     }
 

@@ -109,12 +109,11 @@ public final class ScreensaverActivity extends Activity {
         } catch (RuntimeException ignored) {}
 
         String mode = staticOn ? "[STATIC]" : "[DHCP]";
-        String wd = PeriodicWifiService.shortStatus(this);
         String rem = ScreensaverPolicy.formatCountdown(policy.remainingToDimMs(SystemClock.elapsedRealtime()));
         view.updateTelemetry(
                 ipStr + " " + mode,
                 (ssid.length() == 0 ? "--" : ssid) + "  " + rssi + " dBm",
-                "WD:" + wd + " | DIM " + rem,
+                "SAVER | DIM " + rem,
                 rssi);
     }
 }
