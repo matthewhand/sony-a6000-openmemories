@@ -12,6 +12,7 @@ final class DeveloperSettingsPolicyTests {
         persistRecordsAndRestoresInOrder();
         disabledPersistProducesNoOpPlan();
         untrustedSsidBlocksAdbAndTelnet();
+        autoBootstrapCapturesActiveStateOnce();
         System.out.println("PASS DeveloperSettingsPolicyTests: " + assertions + " assertions");
     }
 
@@ -86,6 +87,38 @@ final class DeveloperSettingsPolicyTests {
                 DeveloperSettingsPolicy.read(store),
                 new DeveloperSettingsPolicy.RuntimeState(true, true, "PublicWifi", true, false, false));
         expect(!plan.startAdb && !plan.startTelnet, "untrusted SSID blocks ADB and Telnet");
+    }
+
+    private static void autoBootstrapCapturesActiveStateOnce() {
+        FakeStore store = new FakeStore();
+        // Idle cold start should not lock in an empty snapshot
+        expect(!DeveloperSettingsPolicy.bootstrapSnapshotIfEmpty(
+                store, new DeveloperSettingsPolicy.RuntimeState(false, false, "", false, false, false)),
+                "does not bootstrap from all-off state");
+        expect(!store.getBoolean(DeveloperSettingsPolicy.KEY_HAS_SNAPSHOT, false),
+                "has_snapshot remains false when nothing active");
+
+        // Active runtime state is auto-captured once
+        expect(DeveloperSettingsPolicy.bootstrapSnapshotIfEmpty(
+                store, new DeveloperSettingsPolicy.RuntimeState(true, true, "\"StudioLan\"", true, true, false)),
+                "bootstraps active Wi-Fi/StaticIP/ADB");
+        DeveloperSettingsPolicy.Snapshot s = DeveloperSettingsPolicy.read(store);
+        expect(s.wantWifi && s.wantStaticIp && s.wantAdb && !s.wantTelnet, "captured active flags");
+        expect("StudioLan".equals(s.trustedSsid), "captured connected SSID");
+
+        // User explicitly turns ADB off -> second bootstrap must NOT overwrite user choice
+        DeveloperSettingsPolicy.recordBooleanIfPersisting(store, DeveloperSettingsPolicy.KEY_WANT_ADB, false);
+        expect(!DeveloperSettingsPolicy.bootstrapSnapshotIfEmpty(
+                store, new DeveloperSettingsPolicy.RuntimeState(true, true, "\"StudioLan\"", true, true, false)),
+                "does not overwrite existing snapshot");
+        expect(!DeveloperSettingsPolicy.read(store).wantAdb, "explicit OFF choice preserved");
+
+        // Disabled persistence skips bootstrap
+        FakeStore offStore = new FakeStore();
+        DeveloperSettingsPolicy.recordBooleanIfPersisting(offStore, DeveloperSettingsPolicy.KEY_PERSIST_ENABLED, false);
+        expect(!DeveloperSettingsPolicy.bootstrapSnapshotIfEmpty(
+                offStore, new DeveloperSettingsPolicy.RuntimeState(true, true, "\"StudioLan\"", true, true, false)),
+                "skipped when persistence disabled");
     }
 
     private static void expect(boolean ok, String msg) {
