@@ -239,6 +239,22 @@ public class DeveloperActivity extends ItemActivity {
             }
         });
 
+        addSwitch("Show on-launch button help", new SwitchItem.Adapter() {
+            @Override public boolean isAvailable() { return true; }
+            @Override public boolean isEnabled() {
+                return devStore.getBoolean(CustomButtonPolicy.KEY_SHOW_LAUNCH_HELP,
+                        CustomButtonPolicy.DEFAULT_SHOW_LAUNCH_HELP);
+            }
+            @Override public void setEnabled(boolean enabled) {
+                devStore.putBoolean(CustomButtonPolicy.KEY_SHOW_LAUNCH_HELP, enabled);
+            }
+            @Override public String getSummary() {
+                return isEnabled()
+                        ? "Shows 6.5s button bindings overlay on Webcam launch"
+                        : "Hidden on launch (press C2 or MENU anytime)";
+            }
+        });
+
         addSwitch("Screensaver debug HUD", new SwitchItem.Adapter() {
             @Override public boolean isAvailable() { return true; }
             @Override public boolean isEnabled() { return devStore.getBoolean(ScreensaverPolicy.KEY_HUD_ENABLED, ScreensaverPolicy.DEFAULT_HUD_ENABLED); }
