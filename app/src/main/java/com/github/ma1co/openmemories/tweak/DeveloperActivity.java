@@ -44,6 +44,12 @@ public class DeveloperActivity extends ItemActivity {
         devStore = new AndroidDeveloperSettingsStore(this);
         adbStartCommand = new String[] { getApplicationInfo().nativeLibraryDir + "/libadbd.so" };
 
+        addButton("Start Webcam & Stream (:8088)", new ButtonItem.Adapter() {
+            @Override public void click() {
+                startActivity(new Intent(DeveloperActivity.this, LivePreviewActivity.class));
+            }
+        });
+
         wifiSwitch = addSwitch("Enable Wifi", new SwitchItem.Adapter() {
             @Override public boolean isAvailable() { return true; }
             @Override public boolean isEnabled() { return isWifiEnabled(); }
@@ -203,6 +209,32 @@ public class DeveloperActivity extends ItemActivity {
                 return isEnabled()
                         ? "Starfield + Oscilloscope + HUD after 60s, full-dim at 5m"
                         : "Screensaver disabled";
+            }
+        });
+
+        addSwitch("Motion wakes dimmed screen", new SwitchItem.Adapter() {
+            @Override public boolean isAvailable() { return true; }
+            @Override public boolean isEnabled() { return devStore.getBoolean(LivePreviewActivity.KEY_MOTION_WAKE, true); }
+            @Override public void setEnabled(boolean enabled) {
+                devStore.putBoolean(LivePreviewActivity.KEY_MOTION_WAKE, enabled);
+            }
+            @Override public String getSummary() {
+                return isEnabled()
+                        ? "Async luma diff + POST /screen/wake reveal live preview"
+                        : "Manual key/touch or HTTP wake only";
+            }
+        });
+
+        addSwitch("Auto-start Webcam on boot", new SwitchItem.Adapter() {
+            @Override public boolean isAvailable() { return true; }
+            @Override public boolean isEnabled() { return devStore.getBoolean(LivePreviewActivity.KEY_BOOT_WEBCAM, true); }
+            @Override public void setEnabled(boolean enabled) {
+                devStore.putBoolean(LivePreviewActivity.KEY_BOOT_WEBCAM, enabled);
+            }
+            @Override public String getSummary() {
+                return isEnabled()
+                        ? "Boot recovery launches Webcam (:8088) directly"
+                        : "Boot recovery launches main menu";
             }
         });
 
