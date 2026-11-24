@@ -125,6 +125,7 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
     private boolean saverHudEnabled = ScreensaverPolicy.DEFAULT_HUD_ENABLED;
     private boolean dimBacklightOffEnabled = true;
     private boolean saverPausedByC1;
+    private boolean surfaceParkedForSaver;
     private CustomButtonPolicy.Action c1Action = CustomButtonPolicy.Action.TOGGLE_SAVER_DIM;
     private long toastBannerUntilMs;
     private int consumedWakeScan = -1;
@@ -295,6 +296,7 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
         frameBus.reopen();
         motionPolicy.reset();
         screenPolicy.wake(SystemClock.elapsedRealtime(), "start");
+        setSurfaceViewParked(false);
         saverOverlay.setVisibility(View.GONE);
         statusStrip.setVisibility(View.VISIBLE);
 
@@ -561,11 +563,21 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
         }
     }
 
+    private void setSurfaceViewParked(boolean parked) {
+        if (surfaceView == null || surfaceParkedForSaver == parked) return;
+        surfaceParkedForSaver = parked;
+        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
+                parked ? 1 : FrameLayout.LayoutParams.MATCH_PARENT,
+                parked ? 1 : FrameLayout.LayoutParams.MATCH_PARENT);
+        surfaceView.setLayoutParams(lp);
+    }
+
     private void wakeWithMotionStill(byte[] jpeg) {
         if (!running) return;
         displayBacklight.restore(this);
         long now = SystemClock.elapsedRealtime();
         screenPolicy.wake(now, "motion");
+        setSurfaceViewParked(false);
         saverOverlay.setVisibility(View.GONE);
         statusStrip.setVisibility(View.VISIBLE);
         clearMotionStillOverlay();
@@ -589,6 +601,7 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
         clearMotionStillOverlay();
         displayBacklight.restore(this);
         screenPolicy.wake(SystemClock.elapsedRealtime(), reason);
+        setSurfaceViewParked(false);
         saverOverlay.setVisibility(View.GONE);
         statusStrip.setVisibility(View.VISIBLE);
         refreshTelemetry();
@@ -605,6 +618,7 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
         lastGalleryLoadMs = 0L;
         selectActiveSaverStyle(saverEnteredAtMs);
         screenPolicy.enterScreensaverNow(saverEnteredAtMs);
+        setSurfaceViewParked(true);
         statusStrip.setVisibility(View.GONE);
         saverOverlay.setVisibility(View.VISIBLE);
         saverOverlay.step(1.0f, false);
@@ -613,6 +627,7 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
 
     private void switchToFullDim() {
         screenPolicy.enterFullDimNow(SystemClock.elapsedRealtime());
+        setSurfaceViewParked(true);
         statusStrip.setVisibility(View.GONE);
         saverOverlay.setVisibility(View.VISIBLE);
         saverOverlay.step(0.0f, true);
@@ -622,6 +637,7 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
     private void applyStageVisuals(ScreensaverPolicy.Stage stage, long now) {
         if (stage == ScreensaverPolicy.Stage.ACTIVE) {
             displayBacklight.restore(this);
+            setSurfaceViewParked(false);
             if (saverOverlay.getVisibility() != View.GONE) {
                 saverOverlay.setVisibility(View.GONE);
                 saverOverlay.clearGalleryBitmap();
@@ -629,6 +645,7 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
             if (statusStrip.getVisibility() != View.VISIBLE) statusStrip.setVisibility(View.VISIBLE);
         } else if (stage == ScreensaverPolicy.Stage.SCREENSAVER) {
             displayBacklight.restore(this);
+            setSurfaceViewParked(true);
             if (statusStrip.getVisibility() != View.GONE) statusStrip.setVisibility(View.GONE);
             if (saverOverlay.getVisibility() != View.VISIBLE) saverOverlay.setVisibility(View.VISIBLE);
             if (saverStyle == ScreensaverPolicy.Style.GALLERY && (now - lastGalleryLoadMs) >= 6000L) {
@@ -637,6 +654,7 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
             long elapsed = now >= saverEnteredAtMs ? (now - saverEnteredAtMs) : 0L;
             saverOverlay.step(ScreensaverPolicy.computeAlpha(elapsed, saverDimSec * 1000L), false);
         } else {
+            setSurfaceViewParked(true);
             if (statusStrip.getVisibility() != View.GONE) statusStrip.setVisibility(View.GONE);
             if (saverOverlay.getVisibility() != View.VISIBLE) saverOverlay.setVisibility(View.VISIBLE);
             saverOverlay.step(0.0f, true);
@@ -986,8 +1004,8 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
                     Thread.sleep(sleepMs);
                 } else {
                     emptyReads++;
-                    if (emptyReads % 20 == 0) {
-                        frameBus.setCameraState("WAITING_FRAMES", "empty_reads=" + emptyReads, activePresetName);
+                    if (emptyReads >= 150 && emptyReads % 50 == 0) {
+                        frameBus.setCameraState("WAITING_FRAMES", "", activePresetName);
                     }
                     Thread.sleep(40L);
                 }
