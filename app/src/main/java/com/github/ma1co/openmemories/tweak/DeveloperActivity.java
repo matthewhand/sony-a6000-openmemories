@@ -235,7 +235,7 @@ public class DeveloperActivity extends ItemActivity {
                 CustomButtonPolicy.Action cur = CustomButtonPolicy.parseAction(
                         getSharedPreferences(DeveloperSettingsPolicy.PREFS_NAME, MODE_PRIVATE)
                                 .getString(CustomButtonPolicy.KEY_C1_ACTION, CustomButtonPolicy.Action.TOGGLE_SAVER_DIM.id));
-                return "MENU: Settings · C2(?): Quick Menu · OK: Saver · C1: " + cur.label;
+                return "SHUTTER: 24MP Photo (S1 AF) · MENU: Settings · C2(?): Quick · OK: Saver · C1: " + cur.label;
             }
         });
 
