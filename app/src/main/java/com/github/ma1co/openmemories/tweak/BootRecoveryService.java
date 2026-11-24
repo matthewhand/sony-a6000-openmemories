@@ -86,7 +86,9 @@ public final class BootRecoveryService extends Service {
     }
 
     protected Class<?> resolveBootActivityClass() {
-        return MainActivity.class;
+        boolean autoWebcam = new AndroidDeveloperSettingsStore(this)
+                .getBoolean(LivePreviewActivity.KEY_BOOT_WEBCAM, true);
+        return autoWebcam ? LivePreviewActivity.class : MainActivity.class;
     }
 
     private void launchUiPhase() {
