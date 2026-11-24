@@ -8,26 +8,38 @@ final class CustomButtonPolicy {
     static final String KEY_C1_ACTION = "c1_button_action";
     static final int SCAN_CUSTOM1 = 622;
     static final int SCAN_CUSTOM_LEGACY = 588;
+    static final long LAUNCH_TIP_DURATION_MS = 5000L;
 
     enum Action {
-        TOGGLE_SAVER_DIM("toggle_saver_dim", "Toggle Screensaver & Dim (Live Hold)"),
-        CYCLE_STAGE("cycle_stage", "Cycle Live -> Saver -> Dim"),
-        TOGGLE_DIM_NOW("toggle_dim_now", "Toggle LCD Backlight Off Now"),
-        TOGGLE_HUD("toggle_hud", "Toggle Debug HUD"),
-        TOGGLE_MOTION("toggle_motion", "Toggle Motion Wake"),
-        NEXT_STYLE("next_style", "Next Screensaver Style"),
-        DISABLED("disabled", "Disabled (Ignore C1)");
+        TOGGLE_SAVER_DIM("toggle_saver_dim", "Toggle Screensaver & Dim (Live Hold)", "Pause Saver"),
+        CYCLE_STAGE("cycle_stage", "Cycle Live -> Saver -> Dim", "Cycle Stage"),
+        TOGGLE_DIM_NOW("toggle_dim_now", "Toggle LCD Backlight Off Now", "LCD Off"),
+        TOGGLE_HUD("toggle_hud", "Toggle Debug HUD", "Toggle HUD"),
+        TOGGLE_MOTION("toggle_motion", "Toggle Motion Wake", "Motion Wake"),
+        NEXT_STYLE("next_style", "Next Screensaver Style", "Next Style"),
+        DISABLED("disabled", "Disabled (Ignore C1)", "");
 
         final String id;
         final String label;
+        final String shortHint;
 
-        Action(String id, String label) {
+        Action(String id, String label, String shortHint) {
             this.id = id;
             this.label = label;
+            this.shortHint = shortHint;
         }
     }
 
     private CustomButtonPolicy() {}
+
+    static String formatLaunchTip(Action action) {
+        Action a = action == null ? Action.TOGGLE_SAVER_DIM : action;
+        String base = "TIP: Press MENU for Settings  |  OK: Screensaver";
+        if (a == Action.DISABLED || a.shortHint.length() == 0) {
+            return base;
+        }
+        return base + "  |  C1: " + a.shortHint;
+    }
 
     static boolean isC1ScanCode(int scanCode) {
         return scanCode == SCAN_CUSTOM1 || scanCode == SCAN_CUSTOM_LEGACY;

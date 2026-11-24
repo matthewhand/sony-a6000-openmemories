@@ -299,6 +299,10 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
         setSurfaceViewParked(false);
         saverOverlay.setVisibility(View.GONE);
         statusStrip.setVisibility(View.VISIBLE);
+        if (toastBannerUntilMs <= 0L) {
+            showBriefBanner(CustomButtonPolicy.formatLaunchTip(c1Action),
+                    CustomButtonPolicy.LAUNCH_TIP_DURATION_MS);
+        }
 
         startHttpServer();
         reconcileNetworkAndBootstrapOnResume();
@@ -335,7 +339,9 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
         surfaceView.getHolder().removeCallback(this);
         stopCameraPipelineOnMainThread();
         try { unregisterReceiver(batteryReceiver); } catch (RuntimeException ignored) {}
-        SonyPowerBridge.applyAutoPowerOffMode(this, AutoPowerOffPolicy.MODE_NORMAL);
+        if (devStore == null || !DeveloperSettingsPolicy.read(devStore).wantKeepAwake) {
+            SonyPowerBridge.applyAutoPowerOffMode(this, AutoPowerOffPolicy.MODE_NORMAL);
+        }
         super.onPause();
     }
 
@@ -405,10 +411,14 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
     }
 
     private void showBriefBanner(String msg) {
+        showBriefBanner(msg, 2600L);
+    }
+
+    private void showBriefBanner(String msg, long durationMs) {
         if (motionStillBanner == null) return;
         motionStillBanner.setText(msg);
         motionStillBanner.setVisibility(View.VISIBLE);
-        toastBannerUntilMs = SystemClock.elapsedRealtime() + 2600L;
+        toastBannerUntilMs = SystemClock.elapsedRealtime() + durationMs;
     }
 
     private void handleC1CustomButton() {
@@ -616,6 +626,8 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
         displayBacklight.restore(this);
         saverEnteredAtMs = SystemClock.elapsedRealtime();
         lastGalleryLoadMs = 0L;
+        toastBannerUntilMs = 0L;
+        if (motionStillBanner != null) motionStillBanner.setVisibility(View.GONE);
         selectActiveSaverStyle(saverEnteredAtMs);
         screenPolicy.enterScreensaverNow(saverEnteredAtMs);
         setSurfaceViewParked(true);
@@ -626,6 +638,8 @@ public final class LivePreviewActivity extends Activity implements SurfaceHolder
     }
 
     private void switchToFullDim() {
+        toastBannerUntilMs = 0L;
+        if (motionStillBanner != null) motionStillBanner.setVisibility(View.GONE);
         screenPolicy.enterFullDimNow(SystemClock.elapsedRealtime());
         setSurfaceViewParked(true);
         statusStrip.setVisibility(View.GONE);
