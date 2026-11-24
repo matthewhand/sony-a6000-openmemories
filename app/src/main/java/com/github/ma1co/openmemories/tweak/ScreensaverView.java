@@ -16,14 +16,14 @@ import java.util.Locale;
 
 /**
  * Multi-style burn-in-safe Canvas screensaver (Android API 10 compatible):
- *   1. Matrix Rain (default)
+ *   1. Matrix Rain (crisp ASCII rain for Gingerbread DroidSansMono)
  *   2. Motion Gallery (recent SD-card motion stills, graceful Matrix fallback when empty)
  *   3. Starfield Warp (3D parallax starfield)
  *   4. Digital Clock (drifting NTP-synced time & date)
  *   5. a6000 Bouncer (classic corner-bouncing neon emblem)
  *   6. Minimal Dark (single gentle breathing standby indicator)
  *
- * Debug telemetry HUD is optional (default ON, toggleable OFF).
+ * Debug telemetry HUD is optional (default OFF, toggleable ON in Developer settings or C2 menu).
  */
 final class ScreensaverView extends View {
     /**
@@ -33,7 +33,7 @@ final class ScreensaverView extends View {
     static final int BG_NON_COLORKEY_BLACK = Color.rgb(8, 8, 8);
     private static final int STAR_COUNT = 64;
     private static final int MATRIX_COLS = 28;
-    private static final String MATRIX_GLYPHS = "0123456789ABCDEF$#@*+<>:=ｱｲｳｴｵｶｷｸｹｺｻｼｽｾｿﾀﾁﾂﾃﾄﾅﾆﾇﾈﾉ";
+    private static final String MATRIX_GLYPHS = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ$#@*+-=<>:|/\\";
     private static final int[] BOUNCER_COLORS = new int[] {
             Color.rgb(34, 211, 238),
             Color.rgb(74, 222, 128),
@@ -83,7 +83,7 @@ final class ScreensaverView extends View {
 
     private float alpha = 1.0f;
     private boolean fullDim;
-    private boolean showHud = true;
+    private boolean showHud = ScreensaverPolicy.DEFAULT_HUD_ENABLED;
     private ScreensaverPolicy.Style style = ScreensaverPolicy.Style.MATRIX;
     private Bitmap galleryBitmap;
     private String galleryCaption = "";

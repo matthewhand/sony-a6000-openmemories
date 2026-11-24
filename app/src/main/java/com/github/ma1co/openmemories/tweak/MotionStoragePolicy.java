@@ -97,7 +97,8 @@ final class MotionStoragePolicy {
             totalUsed += sorted.get(i).sizeBytes;
         }
 
-        long projectedFree = freeBytes < 0L ? 0L : freeBytes;
+        boolean knownFree = freeBytes >= 0L;
+        long projectedFree = knownFree ? freeBytes : 0L;
         List<FileEntry> survivors = new ArrayList<FileEntry>(sorted.size());
 
         // Pass 1: age expiration (only if both nowMs and file timestamp are valid post-2020 epochs)
@@ -109,21 +110,21 @@ final class MotionStoragePolicy {
             if (expired) {
                 toDelete.add(e.name);
                 totalUsed -= e.sizeBytes;
-                projectedFree += e.sizeBytes;
+                if (knownFree) projectedFree += e.sizeBytes;
             } else {
                 survivors.add(e);
             }
         }
 
-        // Pass 2: FIFO cap & SD free-space floor enforcement
+        // Pass 2: FIFO cap & SD free-space floor enforcement (skip free-space floor when StatFs failed / < 0)
         for (int i = 0; i < survivors.size(); i++) {
             boolean overCap = maxBytes >= 0L && totalUsed > maxBytes;
-            boolean lowFree = minFreeBytes > 0L && projectedFree < minFreeBytes;
+            boolean lowFree = knownFree && minFreeBytes > 0L && projectedFree < minFreeBytes;
             if (!overCap && !lowFree) break;
             FileEntry e = survivors.get(i);
             toDelete.add(e.name);
             totalUsed -= e.sizeBytes;
-            projectedFree += e.sizeBytes;
+            if (knownFree) projectedFree += e.sizeBytes;
         }
         return toDelete;
     }

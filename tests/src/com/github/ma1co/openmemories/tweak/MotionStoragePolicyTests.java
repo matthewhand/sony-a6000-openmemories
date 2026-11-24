@@ -50,8 +50,14 @@ final class MotionStoragePolicyTests {
                 files, now, 50 * mb, 72L * 3600L * 1000L, 97 * mb, 100 * mb);
         expect(freeDel.size() == 2 && "a.jpg".equals(freeDel.get(0)), "free-space floor triggers FIFO rotation");
 
+        // Unknown SD free space (-1L from StatFs failure) must NOT wipe existing stills when under folder cap
+        List<String> unknownFreeDel = MotionStoragePolicy.planPrune(
+                files, now, 50 * mb, 72L * 3600L * 1000L, -1L, 100 * mb);
+        expect(unknownFreeDel.isEmpty(), "unknown freeBytes (-1) does not wipe existing stills");
+
         expect(MotionStoragePolicy.canWriteNewStill(105 * mb, 100 * mb, 70_000), "allows write above free floor");
         expect(!MotionStoragePolicy.canWriteNewStill(99 * mb, 100 * mb, 70_000), "blocks write below free floor");
+        expect(!MotionStoragePolicy.canWriteNewStill(-1L, 100 * mb, 70_000), "blocks write when freeBytes unknown");
     }
 
     private static void filenameAndSummaryFormatting() {

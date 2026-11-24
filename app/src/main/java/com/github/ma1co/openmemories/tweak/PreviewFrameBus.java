@@ -119,14 +119,15 @@ final class PreviewFrameBus {
     }
 
     Frame waitForNextFrame(long lastSeq, long timeoutMs) {
-        long deadline = System.currentTimeMillis() + timeoutMs;
+        long deadlineNs = System.nanoTime() + (timeoutMs > 0L ? timeoutMs * 1000000L : 0L);
         synchronized (lock) {
             while (!closed) {
                 if (latest != null && latest.seq > lastSeq) return latest;
-                long rem = deadline - System.currentTimeMillis();
-                if (rem <= 0L) return null;
+                long remNs = deadlineNs - System.nanoTime();
+                if (remNs <= 0L) return null;
+                long remMs = (remNs + 999999L) / 1000000L;
                 try {
-                    lock.wait(rem);
+                    lock.wait(remMs);
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                     return null;

@@ -59,7 +59,17 @@ final class PreviewHttpServerTests {
             bus.publish(jpg1, clock[0]);
 
             String health = httpText(port, "GET /health HTTP/1.1\r\nHost: localhost\r\n\r\n");
-            expect(health.startsWith("HTTP/1.1 200 ") && health.contains("\"battery_level\":91"), "/health 200 with battery");
+            expect(health.startsWith("HTTP/1.1 200 ") && health.contains("\"battery_level\":91")
+                    && health.contains("\"total_requests\":"), "/health 200 with battery & total_requests");
+
+            // HEAD support for health probes & snapshot checks
+            String headSnap = httpText(port, "HEAD /shot.jpg HTTP/1.1\r\nHost: localhost\r\n\r\n");
+            expect(headSnap.startsWith("HTTP/1.1 200 ")
+                    && headSnap.contains("Content-Length: " + jpg1.length)
+                    && headSnap.endsWith("\r\n\r\n"), "HEAD /shot.jpg returns headers without body");
+            String headStatus = httpText(port, "HEAD /status HTTP/1.1\r\nHost: localhost\r\n\r\n");
+            expect(headStatus.startsWith("HTTP/1.1 200 ") && headStatus.endsWith("\r\n\r\n"),
+                    "HEAD /status returns headers without body");
 
             for (String snapPath : new String[] { "/snapshot.jpg", "/shot.jpg" }) {
                 byte[] snap = httpBytes(port, "GET " + snapPath + " HTTP/1.1\r\nHost: localhost\r\n\r\n");
@@ -82,10 +92,13 @@ final class PreviewHttpServerTests {
             String setOvOn = httpText(port, "GET /settings/overlay?set=on HTTP/1.1\r\nHost: localhost\r\n\r\n");
             expect(setOvOn.startsWith("HTTP/1.1 200 ") && screen.stage() == ScreensaverPolicy.Stage.SCREENSAVER, "/settings/overlay=on");
 
-            // Canonical POST screen controls
-            expect(httpText(port, "POST /screen/dim HTTP/1.1\r\nHost: localhost\r\nContent-Length: 0\r\n\r\n").startsWith("HTTP/1.1 200 ")
+            // Canonical POST screen controls report both previous_stage and target screen_stage
+            String dimResp = httpText(port, "POST /screen/dim HTTP/1.1\r\nHost: localhost\r\nContent-Length: 0\r\n\r\n");
+            expect(dimResp.startsWith("HTTP/1.1 200 ") && dimResp.contains("\"screen_stage\":\"FULL_DIM\"")
                     && screen.stage() == ScreensaverPolicy.Stage.FULL_DIM, "POST /screen/dim");
-            expect(httpText(port, "POST /screen/wake HTTP/1.1\r\nHost: localhost\r\nContent-Length: 0\r\n\r\n").startsWith("HTTP/1.1 200 ")
+            String wakeResp = httpText(port, "POST /screen/wake HTTP/1.1\r\nHost: localhost\r\nContent-Length: 0\r\n\r\n");
+            expect(wakeResp.startsWith("HTTP/1.1 200 ") && wakeResp.contains("\"previous_stage\":\"FULL_DIM\"")
+                    && wakeResp.contains("\"screen_stage\":\"ACTIVE\"")
                     && screen.stage() == ScreensaverPolicy.Stage.ACTIVE, "POST /screen/wake");
 
             // Verify MJPEG streaming on both /liveview.mjpeg and /video alias
