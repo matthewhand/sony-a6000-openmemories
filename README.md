@@ -183,7 +183,7 @@ Supply `API10_JAR` (SHA-1 `949a2bef1ffe62e81af5d8919d17dfcc1309c43c`) and `NATIV
 # grants newly added WRITE_SETTINGS, CAMERA, INTERNET, and RECEIVE_BOOT_COMPLETED
 # permissions cleanly on first install):
 ./scripts/build-apk.sh \
-  --package-id dev.privatea6000.hub \
+  --package-id com.example.hub \
   --app-label "A6000 Hub" \
   --version-code 19 \
   --version-name 1.7.1 \
