@@ -159,8 +159,13 @@ final class PreviewHttpServer {
                 if (!running) break;
                 continue;
             }
-            if (activeClients.incrementAndGet() > MAX_CLIENTS) {
-                activeClients.decrementAndGet();
+            boolean admitted = false;
+            while (!admitted) {
+                int current = activeClients.get();
+                if (current >= MAX_CLIENTS) break;
+                if (activeClients.compareAndSet(current, current + 1)) admitted = true;
+            }
+            if (!admitted) {
                 try {
                     client.setSoTimeout(1000);
                     writeSimpleResponse(client.getOutputStream(), 503, "Service Unavailable",
@@ -365,6 +370,12 @@ final class PreviewHttpServer {
                 if (next == null) {
                     if (!running || bus.isClosed()) break;
                     if (bus.latestIfFresh(hooks.nowMs(), PreviewFrameBus.DEFAULT_FRESH_MS) == null) break;
+                    try {
+                        Thread.sleep(50L);
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        break;
+                    }
                     continue;
                 }
                 writeMjpegPart(out, next.jpeg);
@@ -419,8 +430,8 @@ final class PreviewHttpServer {
         int state = 0;
         int b;
         while ((b = in.read()) != -1) {
+            if (buf.size() >= MAX_HEADER_BYTES) return null;
             buf.write(b);
-            if (buf.size() > MAX_HEADER_BYTES) return null;
             if ((state == 0 || state == 2) && b == '\r') state++;
             else if ((state == 1 || state == 3) && b == '\n') {
                 state++;
